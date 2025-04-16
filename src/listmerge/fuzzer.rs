@@ -137,7 +137,9 @@ fn merge_fuzz(seed: u64, verbose: bool) {
 // // Included in standard smoke tests.
 #[test]
 fn fuzz_once_quietly_new() {
-    merge_fuzz(1, true);
+    // This is a good seed. Some seeds never generate a case where some delete offset = 0 in advanceRetreat.
+    // This one does.
+    merge_fuzz(10376293541461622000, true);
 }
 
 #[test]

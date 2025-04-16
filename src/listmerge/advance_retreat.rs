@@ -20,51 +20,6 @@ pub(super) struct QueryResult {
 }
 
 impl M2Tracker {
-    /// Returns what happened here, target range, offset into range and a cursor into the range
-    /// tree.
-    ///
-    /// This should only be used with times we have advanced through.
-    ///
-    /// Returns (ins / del, target, offset into target, rev, range_tree cursor).
-    fn index_query(&self, lv: LV) -> QueryResult {
-        debug_assert_ne!(lv, usize::MAX);
-
-        let RleDRun {
-            start, end, val: marker
-        } = self.index.get_entry(lv);
-
-        let offset = lv - start;
-        let len = end - start;
-
-        match marker {
-            Marker::InsPtr(leaf_idx) => {
-                debug_assert!(leaf_idx.exists());
-                // For inserts, the target is simply the range of the item.
-                // let start = lv - cursor.offset;
-                QueryResult {
-                    target: (start..end).into(),
-                    offset,
-                    leaf_idx,
-                }
-            }
-            Marker::Del(target) => {
-                let rr = RangeRev {
-                    span: if target.fwd {
-                        (target.target..target.target + len).into()
-                    } else {
-                        (target.target - len..target.target).into()
-                    },
-                    fwd: target.fwd,
-                };
-                QueryResult {
-                    target: rr,
-                    offset,
-                    leaf_idx: LeafIdx::default(),
-                }
-            }
-        }
-    }
-
     pub(super) fn adv_retreat_range(&mut self, mut range: DTRange, incr: i32) {
         // This method handles both advancing and retreating. In either case, because of the way
         // SpanState is designed, we need to either increment or decrement the state of every
@@ -104,19 +59,37 @@ impl M2Tracker {
 
             } else {
                 // crate::stats::marker_b();
+                debug_assert_ne!(range.start, usize::MAX);
 
-                let QueryResult {
+                let RleDRun {
+                    start: entry_start, end: entry_end, val: marker
+                } = self.index.get_entry(range.start);
+                
+                let len = usize::min(entry_end, range.end) - range.start;
+
+                let (
                     target,
-                    offset,
                     mut leaf_idx,
-                } = self.index_query(range.start);
+                ) = match marker {
+                    Marker::InsPtr(leaf_idx) => {
+                        debug_assert!(leaf_idx.exists());
+                        // For inserts, the target is simply the range of the item.
+                        (range.start, leaf_idx)
+                    }
+                    Marker::Del(target) => {
+                        let offset = range.start - entry_start;
 
-                let len = usize::min(target.len() - offset, range.len());
+                        let target_start = if target.fwd {
+                            target.target + offset
+                        } else {
+                            target.target - offset - len
+                        };
 
-                // If the target span is reversed, the part of target we eat each iteration changes.
-                let mut target_range = target.range(offset, offset + len);
-
-                // let mut len_remaining = len;
+                        (target_start, LeafIdx::default())
+                    }
+                };
+                
+                let mut target_range: DTRange = (target..target + len).into();
                 while !target_range.is_empty() {
                     // We'll only get a leaf pointer when we're inserting. Note we can't reuse the leaf
                     // ptr across subsequent invocations because we mutate the range_tree.
