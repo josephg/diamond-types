@@ -98,7 +98,7 @@ impl M2Tracker {
                         LeafIdx(usize::MAX) => self.marker_at(target_range.start),
                         x => x,
                     };
-                    let (mut cursor, pos) = self.range_tree.mut_cursor_before_item(target_range.start, leaf_idx);
+                    let (mut cursor, pos) = self.range_tree.cursor_before_item(target_range.start, leaf_idx);
                     target_range.start += self.range_tree.mutate_entry(
                         &mut cursor,
                         target_range.len(),

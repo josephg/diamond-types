@@ -119,18 +119,18 @@ impl M2Tracker {
             unreachable!();
         } else {
             let leaf_idx = self.marker_at(lv);
-            self.range_tree.cursor_before_item(lv, leaf_idx)
+            self.range_tree.cursor_before_item_nocache(lv, leaf_idx) // TODO: Does it make sense to use the nocache version here?
         }
     }
 
     fn get_cursor_after(&self, lv: LV, stick_end: bool) -> ContentCursor {
         if lv == usize::MAX {
-            self.range_tree.cursor_at_start_nothing_emplaced()
+            self.range_tree.cursor_at_start()
         } else {
             let leaf_idx = self.marker_at(lv);
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
-            let mut cursor = self.range_tree.cursor_before_item(lv, leaf_idx);
+            let mut cursor = self.range_tree.cursor_before_item_nocache(lv, leaf_idx);
             // The cursor points to origin left of LV. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.inc_offset(&self.range_tree);
@@ -402,9 +402,9 @@ impl M2Tracker {
                 // UNDERWATER_START = 4611686018427387903
 
                 let (origin_left, end_pos, mut cursor) = if op.start() == 0 {
-                    (usize::MAX, 0, self.range_tree.mut_cursor_at_start())
+                    (usize::MAX, 0, self.range_tree.cursor_at_start())
                 } else {
-                    let (mut end_pos, mut cursor) = self.range_tree.mut_cursor_before_cur_pos(op.start() - 1);
+                    let (mut end_pos, mut cursor) = self.range_tree.cursor_before_cur_pos(op.start() - 1);
                     let (e, offset) = cursor.get_item(&self.range_tree);
                     let origin_left = e.id.start + offset;
                     end_pos += e.takes_up_space::<false>() as usize;
@@ -468,14 +468,14 @@ impl M2Tracker {
 
                 let (cursor_pos, mut cursor, len) = if fwd {
                     let start_pos = op.start();
-                    let (end_pos, cursor) = self.range_tree.mut_cursor_before_cur_pos(start_pos);
+                    let (end_pos, cursor) = self.range_tree.cursor_before_cur_pos(start_pos);
                     (LenPair::new(start_pos, end_pos), cursor, len)
                 } else {
                     // We're moving backwards. We need to delete as many items as we can before the
                     // end of the op.
                     let last_pos = op.loc.span.last();
                     // Find the last entry
-                    let (end_pos, mut cursor) = self.range_tree.mut_cursor_before_cur_pos(last_pos);
+                    let (end_pos, mut cursor) = self.range_tree.cursor_before_cur_pos(last_pos);
                     // let mut cursor_pos = LenPair::new(last_pos, end_pos);
 
                     let (e, offset) = cursor.get_item(&self.range_tree);
