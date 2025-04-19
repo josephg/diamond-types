@@ -131,7 +131,7 @@ impl M2Tracker {
             // let marker: NonNull<NodeLeaf<YjsSpan, ContentIndex>> = self.markers.at(order as usize).unwrap();
             // self.content_tree.
             let mut cursor = self.range_tree.cursor_before_item(lv, leaf_idx);
-            // The cursor points to parent. This is safe because of guarantees provided by
+            // The cursor points to origin left of LV. This is safe because of guarantees provided by
             // cursor_before_item.
             cursor.inc_offset(&self.range_tree);
             if !stick_end { cursor.roll_next_item(&self.range_tree); }
@@ -152,14 +152,10 @@ impl M2Tracker {
         let mut scan_pos = cursor_pos;
         let mut scanning = false;
 
-        loop {
-            if dc.0.offset > 0 // If cursor > 0, the item we're on now is INSERTED.
-                || !dc.roll_next_item(&mut self.range_tree) { // End of the document
-                break;
-            }
-
-            // let other_entry: CRDTSpan = *cursor.get_raw_entry();
-            
+        // If cursor > 0, the item we're on now must be INSERTED - in which case we break.
+        // And if cursor.roll_next_item returns false, we're at the end of the document.
+        // (Though this can't really happen)
+        while dc.0.offset == 0 && dc.roll_next_item(&mut self.range_tree) {
             // We don't care about the offset because its 0.
             let other_entry = *dc.0.get_item(&self.range_tree).0;
 
@@ -176,7 +172,6 @@ impl M2Tracker {
             // After this point, dc.1 is always zero.
 
             debug_assert_eq!(dc.1, LenUpdate::default());
-
             debug_assert_eq!(other_entry.current_state, NOT_INSERTED_YET);
             // if other_entry.state != NOT_INSERTED_YET { break; }
 
@@ -193,60 +188,56 @@ impl M2Tracker {
             // anyway.
 
             let other_left_lv = other_entry.origin_left_at_offset(dc.0.offset);
-            let other_left_cursor = self.get_cursor_after(other_left_lv, false);
+            if other_left_lv == item.origin_left {
+                if item.origin_right == other_entry.origin_right {
+                    // Origin_right matches. Items are concurrent. Order by agent names.
+                    let my_name = aa.get_agent_name(agent);
 
-            // YjsMod / Fugue semantics. (The code here is the same for both CRDTs).
-            match other_left_cursor.cmp(&left_cursor, &self.range_tree) {
-                Ordering::Less => { break; } // Top row
-                Ordering::Greater => {} // Bottom row. Continue.
-                Ordering::Equal => {
-                    if item.origin_right == other_entry.origin_right {
-                        // Origin_right matches. Items are concurrent. Order by agent names.
-                        let my_name = aa.get_agent_name(agent);
+                    let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
+                    let other_name = aa.get_agent_name(other_agent);
+                    // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
 
-                        let (other_agent, other_seq) = aa.local_to_agent_version(other_lv);
-                        let other_name = aa.get_agent_name(other_agent);
-                        // eprintln!("concurrent insert at the same place {} ({}) vs {} ({})", item.id.start, my_name, other_lv, other_name);
-
-                        // It's possible for a user to conflict with themselves if they commit to
-                        // multiple branches. In this case, sort by seq number.
-                        let ins_here = match my_name.cmp(other_name) {
-                            Ordering::Less => true,
-                            Ordering::Equal => {
-                                // We can't compare versions here because sequence numbers could be
-                                // used out of order, and the relative version ordering isn't
-                                // consistent in that case.
-                                //
-                                // We could cache this but this code doesn't run often anyway.
-                                let item_seq = aa.local_to_agent_version(item.id.start).1;
-                                item_seq < other_seq
-                            }
-                            Ordering::Greater => false,
-                        };
-
-                        // Insert here.
-                        if ins_here { break; }
-                        else { scanning = false; }
-                    } else {
-                        // Set scanning based on how the origin_right entries are ordered.
-                        let my_right_cursor = self.get_cursor_before(item.origin_right);
-                        let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
-
-                        if other_right_cursor.cmp(&my_right_cursor, &self.range_tree) == Ordering::Less {
-                            if !scanning {
-                                scanning = true;
-                                scan_cursor = dc.0.clone();
-                                scan_pos = cursor_pos;
-                            }
-                        } else {
-                            scanning = false;
+                    // It's possible for a user to conflict with themselves if they commit to
+                    // multiple branches. In this case, sort by seq number.
+                    let ins_here = match my_name.cmp(other_name) {
+                        Ordering::Less => true,
+                        Ordering::Equal => {
+                            // We can't compare versions here because sequence numbers could be
+                            // used out of order, and the relative version ordering isn't
+                            // consistent in that case.
+                            //
+                            // We could cache this but this code doesn't run often anyway.
+                            let item_seq = aa.local_to_agent_version(item.id.start).1;
+                            item_seq < other_seq
                         }
+                        Ordering::Greater => false,
+                    };
+
+                    // Insert here.
+                    if ins_here { break; }
+                    else { scanning = false; }
+                } else {
+                    // Set scanning based on how the origin_right entries are ordered.
+                    let my_right_cursor = self.get_cursor_before(item.origin_right);
+                    let other_right_cursor = self.get_cursor_before(other_entry.origin_right);
+
+                    if other_right_cursor.cmp(&my_right_cursor, &self.range_tree) == Ordering::Less {
+                        if !scanning {
+                            scanning = true;
+                            scan_cursor = dc.0.clone();
+                            scan_pos = cursor_pos;
+                        }
+                    } else {
+                        scanning = false;
                     }
                 }
+            } else {
+                let other_left_cursor = self.get_cursor_after(other_left_lv, false);
+                if other_left_cursor.cmp(&left_cursor, &self.range_tree) == Ordering::Less { break; }
             }
 
             // This looks wrong. The entry in the range tree is a run with:
-            // - Incrementing orders (maybe from different peers)
+            // - Incrementing LVs (maybe from different peers)
             // - With incrementing origin_left.
             // Q: Is it possible that we get different behaviour if we don't separate out each
             // internal run within the entry and visit each one separately?
@@ -254,9 +245,9 @@ impl M2Tracker {
             // The fuzzer says no, we don't need to do that. I assume it's because internal entries
             // have higher origin_left, and thus they can't be peers with the newly inserted item
             // (which has a lower origin_left).
-            let (item, offset) = dc.0.get_item(&self.range_tree);
-            cursor_pos.cur += if item.takes_up_space::<true>() { item.len() - offset } else { 0 };
-            cursor_pos.end += if item.takes_up_space::<false>() { item.len() - offset } else { 0 };
+            debug_assert_eq!(dc.0.offset, 0); // If offset was nonzero, we don't reach this point of the loop.
+            cursor_pos.cur += if other_entry.takes_up_space::<true>() { other_entry.len() } else { 0 };
+            cursor_pos.end += if other_entry.takes_up_space::<false>() { other_entry.len() } else { 0 };
 
             // Just using the cursor version of next_entry since delta is 0.
             if !dc.0.next_entry(&self.range_tree).0 {

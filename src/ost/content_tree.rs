@@ -216,7 +216,7 @@ impl ContentCursor {
 
     /// Move a cursor at the end of an item to the next item.
     ///
-    /// Returns false if there is no next item.
+    /// Returns (are we still in the tree, old_leaf),
     pub(crate) fn roll_next_item<V: Content>(&mut self, tree: &ContentTree<V>) -> (bool, Option<LeafIdx>) {
         let leaf = &tree[self.leaf_idx];
         if self.offset < leaf.children[self.elem_idx].len() { return (true, None); }
