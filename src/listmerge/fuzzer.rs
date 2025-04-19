@@ -139,6 +139,7 @@ fn merge_fuzz(seed: u64, verbose: bool) {
 fn fuzz_once_quietly_new() {
     // This is a good seed. Some seeds never generate a case where some delete offset = 0 in advanceRetreat.
     // This one does.
+    // merge_fuzz(2, true);
     merge_fuzz(10376293541461622000, true);
 }
 

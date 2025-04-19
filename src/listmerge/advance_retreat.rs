@@ -40,10 +40,10 @@ impl M2Tracker {
                 // Try just modifying the item directly.
                 //
                 // The item will only exist in the range tree at all if it was an insert.
-                let (e, _offset) = cursor.0.get_item(&self.range_tree);
+                let (e, _offset) = cursor.get_item(&self.range_tree);
                 // let chunk_start = last_lv - offset;
                 let start = range.start.max(e.id.start);
-                cursor.0.offset = start - e.id.start;
+                cursor.offset = start - e.id.start;
                 let max_len = range.end - start;
 
                 range.start += self.range_tree.mutate_entry(

@@ -28,7 +28,7 @@ use crate::listmerge::merge::TransformedResult::{BaseMoved, DeleteAlreadyHappene
 use crate::listmerge::plan::{M1Plan, M1PlanAction};
 use crate::listmerge::yjsspan::{CRDTSpan, INSERTED, NOT_INSERTED_YET};
 use crate::ost::{IndexTree, LeafIdx, LenPair, LenUpdate};
-use crate::ost::content_tree::{Content, ContentCursor, ContentTree, DeltaCursor};
+use crate::ost::content_tree::{Content, ContentCursor, ContentTree};
 use crate::rev_range::RangeRev;
 use crate::rle::{KVPair, RleSpanHelpers, RleVec};
 use crate::textinfo::TextInfo;
@@ -139,25 +139,25 @@ impl M2Tracker {
         }
     }
 
-    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut dc: DeltaCursor, mut cursor_pos: LenPair) -> usize {
-        debug_assert_eq!(dc.0.get_pos(&self.range_tree), cursor_pos);
+    pub(super) fn integrate(&mut self, aa: &AgentAssignment, agent: AgentId, item: CRDTSpan, mut cursor: ContentCursor, mut cursor_pos: LenPair) -> usize {
+        debug_assert_eq!(cursor.dbg_get_cursor_pos(&self.range_tree), cursor_pos);
         // let DeltaCursor(mut cursor, mut delta) = dc;
         debug_assert!(item.len() > 0);
 
         // Ok now that's out of the way, lets integrate!
 
         // These are almost never used. Could avoid the clone here... though its pretty cheap.
-        let left_cursor = dc.0.clone();
-        let mut scan_cursor = dc.0.clone();
+        let left_cursor = cursor.clone();
+        let mut scan_cursor = cursor.clone();
         let mut scan_pos = cursor_pos;
         let mut scanning = false;
 
         // If cursor > 0, the item we're on now must be INSERTED - in which case we break.
         // And if cursor.roll_next_item returns false, we're at the end of the document.
         // (Though this can't really happen)
-        while dc.0.offset == 0 && dc.roll_next_item(&mut self.range_tree) {
+        while cursor.offset == 0 && cursor.roll_next_item(&mut self.range_tree).0 {
             // We don't care about the offset because its 0.
-            let other_entry = *dc.0.get_item(&self.range_tree).0;
+            let other_entry = *cursor.get_item(&self.range_tree).0;
 
             // When concurrent edits happen, the range of insert locations goes from the insert
             // position itself (passed in through cursor) to the next item which existed at the
@@ -168,10 +168,10 @@ impl M2Tracker {
 
             // We're now in the rare case there's actually concurrent inserts. To make the logic
             // simpler, at this point we'll zero out the delta.
-            dc.flush_delta_and_clear(&mut self.range_tree);
+            // cursor.flush_delta_and_clear(&mut self.range_tree);
             // After this point, dc.1 is always zero.
 
-            debug_assert_eq!(dc.1, LenUpdate::default());
+            // debug_assert_eq!(cursor.1, LenUpdate::default());
             debug_assert_eq!(other_entry.current_state, NOT_INSERTED_YET);
             // if other_entry.state != NOT_INSERTED_YET { break; }
 
@@ -187,7 +187,7 @@ impl M2Tracker {
             // rare that you actually get concurrent inserts at the same location in the document
             // anyway.
 
-            let other_left_lv = other_entry.origin_left_at_offset(dc.0.offset);
+            let other_left_lv = other_entry.origin_left_at_offset(cursor.offset);
             if other_left_lv == item.origin_left {
                 if item.origin_right == other_entry.origin_right {
                     // Origin_right matches. Items are concurrent. Order by agent names.
@@ -224,7 +224,7 @@ impl M2Tracker {
                     if other_right_cursor.cmp(&my_right_cursor, &self.range_tree) == Ordering::Less {
                         if !scanning {
                             scanning = true;
-                            scan_cursor = dc.0.clone();
+                            scan_cursor = cursor.clone();
                             scan_pos = cursor_pos;
                         }
                     } else {
@@ -245,29 +245,29 @@ impl M2Tracker {
             // The fuzzer says no, we don't need to do that. I assume it's because internal entries
             // have higher origin_left, and thus they can't be peers with the newly inserted item
             // (which has a lower origin_left).
-            debug_assert_eq!(dc.0.offset, 0); // If offset was nonzero, we don't reach this point of the loop.
+            debug_assert_eq!(cursor.offset, 0); // If offset was nonzero, we don't reach this point of the loop.
             cursor_pos.cur += if other_entry.takes_up_space::<true>() { other_entry.len() } else { 0 };
             cursor_pos.end += if other_entry.takes_up_space::<false>() { other_entry.len() } else { 0 };
 
             // Just using the cursor version of next_entry since delta is 0.
-            if !dc.0.next_entry(&self.range_tree).0 {
+            if !cursor.next_entry(&self.range_tree).0 {
                 // This is dirty. If the cursor can't move to the next entry, we still need to move
                 // it to the end of the current element or we'll prepend. next_entry() doesn't do
                 // that for some reason.
                 //
                 // Also, this case never actually comes up due to dummy data at the end of the range
                 // tree. It would be equally valid to put an unreachable!(); here and just abort.
-                dc.0.offset = other_entry.len();
+                cursor.offset = other_entry.len();
                 break;
             }
 
-            debug_assert_eq!(dc.0.get_pos(&self.range_tree), cursor_pos);
+            debug_assert_eq!(cursor.dbg_get_cursor_pos(&self.range_tree), cursor_pos);
         }
 
         if scanning {
-            debug_assert_eq!(dc.1, LenUpdate::default());
-            debug_assert_eq!(scan_cursor.get_pos(&self.range_tree), scan_pos);
-            dc.0 = scan_cursor;
+            // debug_assert_eq!(cursor.1, LenUpdate::default());
+            debug_assert_eq!(scan_cursor.dbg_get_cursor_pos(&self.range_tree), scan_pos);
+            cursor = scan_cursor;
             cursor_pos = scan_pos;
         }
 
@@ -283,9 +283,8 @@ impl M2Tracker {
         cursor_pos += item.content_len_pair();
 
         // println!("insert entry {:?}", item.id);
-        self.range_tree.insert(item, &mut dc, true, &mut notify_for(&mut self.index));
-
-        self.range_tree.emplace_cursor(cursor_pos, dc);
+        self.range_tree.insert(item, &mut cursor, true, &mut notify_for(&mut self.index));
+        self.range_tree.emplace_cursor(cursor_pos, cursor);
 
         // We return the resulting end pos of the insert, *before* its been inserted.
         end_pos
@@ -387,6 +386,7 @@ impl M2Tracker {
         let len = max_len.min(op_pair.len());
         let op = &op_pair.1;
 
+        // self.range_tree.dbg_check();
         // dbg!(op);
         match op.kind {
             ListOpKind::Ins => {
@@ -405,26 +405,26 @@ impl M2Tracker {
                     (usize::MAX, 0, self.range_tree.mut_cursor_at_start())
                 } else {
                     let (mut end_pos, mut cursor) = self.range_tree.mut_cursor_before_cur_pos(op.start() - 1);
-                    let (e, offset) = cursor.0.get_item(&self.range_tree);
+                    let (e, offset) = cursor.get_item(&self.range_tree);
                     let origin_left = e.id.start + offset;
                     end_pos += e.takes_up_space::<false>() as usize;
                     // if CHECK_TREES { assert_eq!(origin_left, origin_left_2); }
-                    cursor.0.inc_offset(&self.range_tree);
+                    cursor.inc_offset(&self.range_tree);
 
                     (origin_left, end_pos, cursor)
                 };
                 let cursor_pos = LenPair::new(op.start(), end_pos);
-                debug_assert_eq!(cursor.0.get_pos(&self.range_tree), cursor_pos);
+                debug_assert_eq!(cursor.dbg_get_cursor_pos(&self.range_tree), cursor_pos);
 
                 // Origin_right should be the next item which isn't in the NotInsertedYet state.
                 // If we reach the end of the document before that happens, use usize::MAX.
 
-                let origin_right = if !cursor.roll_next_item(&mut self.range_tree) {
+                let origin_right = if !cursor.roll_next_item(&mut self.range_tree).0 {
                     // Because the list has underwater elements, this never happens in practice.
                     // unreachable!() would be equally valid here.
                     usize::MAX
                 } else {
-                    let mut c2 = cursor.0.clone();
+                    let mut c2 = cursor.clone();
 
                     // Just scan forward until we find the next item that exists at this point
                     // in time. This scan is O(n) but fast in the average case. It might be faster
@@ -452,7 +452,9 @@ impl M2Tracker {
                     end_state_ever_deleted: false,
                 };
 
+                // self.range_tree.dbg_check();
                 let ins_xf_pos = self.integrate(aa, agent, item, cursor, cursor_pos);
+                // self.range_tree.dbg_check();
                 (len, BaseMoved(ins_xf_pos))
             }
 
@@ -476,7 +478,7 @@ impl M2Tracker {
                     let (end_pos, mut cursor) = self.range_tree.mut_cursor_before_cur_pos(last_pos);
                     // let mut cursor_pos = LenPair::new(last_pos, end_pos);
 
-                    let (e, offset) = cursor.0.get_item(&self.range_tree);
+                    let (e, offset) = cursor.get_item(&self.range_tree);
                     let entry_origin_start = last_pos - offset;
                     // let edit_start = entry_origin_start.max(op.start());
                     let edit_start = entry_origin_start.max(op.end() - len);
@@ -486,7 +488,7 @@ impl M2Tracker {
                     debug_assert!(e.takes_up_space::<true>()); // We can't delete this item otherwise.
 
                     let slide_back_by = len - 1;
-                    cursor.0.offset -= slide_back_by;
+                    cursor.offset -= slide_back_by;
 
                     let cursor_pos = LenPair::new(
                         last_pos - slide_back_by,
@@ -495,9 +497,9 @@ impl M2Tracker {
 
                     (cursor_pos, cursor, len)
                 };
-                debug_assert_eq!(cursor.0.get_pos(&self.range_tree), cursor_pos);
+                debug_assert_eq!(cursor.dbg_get_cursor_pos(&self.range_tree), cursor_pos);
 
-                let (e, _offset) = cursor.0.get_item(&self.range_tree);
+                let (e, _offset) = cursor.get_item(&self.range_tree);
                 assert_eq!(e.current_state, INSERTED);
 
                 // If we've never been deleted locally, we'll need to do that.
@@ -506,7 +508,7 @@ impl M2Tracker {
                 // The transformed position that this delete is at. Only actually needed if we're
                 // modifying
                 // let del_start_xf = cursor_pos.end;
-                debug_assert_eq!(cursor.0.get_pos(&self.range_tree), cursor_pos);
+                debug_assert_eq!(cursor.dbg_get_cursor_pos(&self.range_tree), cursor_pos);
 
                 let (len2, target) = self.range_tree.mutate_entry(
                     &mut cursor,
@@ -536,7 +538,7 @@ impl M2Tracker {
                     target: if fwd { target.start } else { target.end },
                     fwd,
                 }).into());
-
+                
                 (len, if !ever_deleted {
                     BaseMoved(cursor_pos.end)
                 } else {

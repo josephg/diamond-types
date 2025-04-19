@@ -587,7 +587,7 @@ impl<T: Clone + Eq> PackedRleItem for RleDRun<T> {
 
     type PackedItem = ();
 
-    fn at_offset_from_packed(packed: &Self::Packed, offset: usize) -> Self::PackedItem {
+    fn at_offset_from_packed(_packed: &Self::Packed, _offset: usize) -> Self::PackedItem {
         todo!()
     } // Nothing to do here.
 }

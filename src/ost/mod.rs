@@ -67,6 +67,11 @@ impl LenPair {
         self.cur = self.cur.wrapping_add_signed(upd.cur);
         self.end = self.end.wrapping_add_signed(upd.end);
     }
+    
+    fn inc_wrapping(&mut self, rhs: Self) {
+        self.cur = self.cur.wrapping_add(rhs.cur);
+        self.end = self.end.wrapping_add(rhs.end);
+    }
 
     pub fn new(cur: usize, end: usize) -> Self {
         LenPair { cur, end }

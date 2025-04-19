@@ -34,22 +34,49 @@ pub(crate) trait Content: SplitableSpan + MergableSpan + Copy + HasLength {
 //     fn notify(&mut self, range: DTRange, leaf_idx: LeafIdx);
 // }
 
-pub(crate) trait FlushUpdate: Default {
-    fn flush<V: Content>(&self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx);
+// pub(crate) trait FlushUpdate: Default {
+//     fn flush<V: Content>(&self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx);
+//
+//     #[inline]
+//     fn flush_and_clear<V: Content>(&mut self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx) {
+//         self.flush(tree, leaf_idx);
+//         *self = Self::default();
+//     }
+// }
 
-    #[inline]
-    fn flush_and_clear<V: Content>(&mut self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx) {
-        self.flush(tree, leaf_idx);
-        *self = Self::default();
+// impl FlushUpdate for () {
+//     fn flush<V: Content>(&self, _tree: &mut ContentTree<V>, _leaf_idx: LeafIdx) {}
+// }
+// impl FlushUpdate for LenUpdate {
+//     fn flush<V: Content>(&self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx) {
+//         tree.flush_delta_len(leaf_idx, *self);
+//     }
+// }
+
+#[derive(Debug, Clone, Default)]
+struct ContentTreeUpdate {
+    leaf: LeafIdx,
+    update: LenUpdate, // May be usize::MAX if no pending update present.
+}
+
+impl ContentTreeUpdate {
+    fn is_empty(&self) -> bool {
+        !self.leaf.exists() || self.update.is_empty() 
     }
-}
 
-impl FlushUpdate for () {
-    fn flush<V: Content>(&self, _tree: &mut ContentTree<V>, _leaf_idx: LeafIdx) {}
-}
-impl FlushUpdate for LenUpdate {
-    fn flush<V: Content>(&self, tree: &mut ContentTree<V>, leaf_idx: LeafIdx) {
-        tree.flush_delta_len(leaf_idx, *self);
+    fn set_leaf(&mut self, leaf: LeafIdx) {
+        debug_assert!(self.leaf == leaf || self.is_empty(), "Delta update needs flush");
+        self.leaf = leaf;
+    }
+
+    fn inc_delta_without_flushing<V: Content>(&mut self, leaf: LeafIdx, e: &V) {
+        self.set_leaf(leaf);
+        inc_delta_update(&mut self.update, e);
+    }
+
+    fn dec_delta_without_flushing<V: Content>(&mut self, leaf: LeafIdx, e: &V) {
+        self.set_leaf(leaf);
+        dec_delta_update(&mut self.update, e);
     }
 }
 
@@ -68,7 +95,20 @@ pub(crate) struct ContentTree<V: Content> {
     total_len: LenPair,
 
     /// There is a cached cursor currently at some content position, with a held delta update.
-    cursor: Option<(Option<LenPair>, DeltaCursor)>,
+    update: ContentTreeUpdate,
+
+    cursor: Option<(
+        // The position of the cursor may or may not be known.
+        Option<LenPair>,
+        // A cached update at the cursor position.
+        ContentCursor,
+    )>,
+    // cursor: Option<(
+    //     // The position of the cursor may or may not be known.
+    //     Option<LenPair>,
+    //     // A cached update at the cursor position.
+    //     DeltaCursor
+    // )>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -94,8 +134,8 @@ impl Default for ContentCursor {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct DeltaCursor(pub ContentCursor, pub LenUpdate);
+// #[derive(Debug, Clone)]
+// pub struct DeltaCursor(pub ContentCursor, pub LenUpdate);
 
 const NODE_SPLIT_POINT: usize = NODE_CHILDREN / 2;
 // const LEAF_CHILDREN: usize = LEAF_SIZE - 1;
@@ -217,6 +257,8 @@ impl ContentCursor {
     /// Move a cursor at the end of an item to the next item.
     ///
     /// Returns (are we still in the tree, old_leaf),
+    ///
+    /// TODO: Consider making this just return bool. It makes a lot more sense 95% of the time.
     pub(crate) fn roll_next_item<V: Content>(&mut self, tree: &ContentTree<V>) -> (bool, Option<LeafIdx>) {
         let leaf = &tree[self.leaf_idx];
         if self.offset < leaf.children[self.elem_idx].len() { return (true, None); }
@@ -269,10 +311,7 @@ impl ContentCursor {
 
     /// Get the current position of the cursor. This is inefficient, and it should not normally be
     /// called.
-    ///
-    /// Note that any outstanding delta is not relevant, as the delta position only affects the pos
-    /// of later items. The cursor itself is (just) early enough to be unaffected.
-    pub(crate) fn get_pos<V: Content>(&self, tree: &ContentTree<V>) -> LenPair {
+    pub(crate) fn dbg_get_cursor_pos<V: Content>(&self, tree: &ContentTree<V>) -> LenPair {
         assert!(cfg!(debug_assertions), "get_pos should never be called in release mode");
         let mut result = LenPair::default();
 
@@ -288,15 +327,41 @@ impl ContentCursor {
         // Then recurse up.
         let mut p = leaf.parent;
         let mut last_child = self.leaf_idx.0;
+
+        // We'll also walk the update up the tree.
+        let (mut upd_child, mut upd) = if tree.update.leaf.exists() {
+            (tree.update.leaf.0, tree.update.update)
+        } else {
+            // Ok to use 0 here because its always
+            (0, LenUpdate::default())
+        };
+        let mut upd_p = tree.leaves[upd_child].parent;
+
         while !p.is_root() {
             let node = &tree[p];
 
             for i in 0..node.child_indexes.len() {
                 if node.child_indexes[i] == last_child { break; }
-                result += node.child_width[i];
+
+                if upd_p == p && upd_child == node.child_indexes[i] {
+                    // Incorporate the update. This is a little inefficient, but fine given this is
+                    // a debugging function.
+                    result.update_by(upd);
+                    upd = LenUpdate::default(); // Zero out the update.
+                }
+
+                // We need this to be able to wrap because the update might be -1 or something, and
+                // if so, its possible for the result to be temporarily negative.
+                //
+                // Might be cleaner to use isize here instead... not sure. Wrapping add is cheap.
+                result.inc_wrapping(node.child_width[i]);
             }
+
             last_child = p.0;
             p = node.parent;
+
+            upd_child = upd_p.0;
+            upd_p = tree.nodes[upd_p.0].parent;
         }
 
         result
@@ -334,33 +399,33 @@ impl ContentCursor {
     }
 }
 
-impl DeltaCursor {
-    pub(crate) fn roll_next_item<V: Content>(&mut self, tree: &mut ContentTree<V>) -> bool {
-        let (has_next, flush_leaf) = self.0.roll_next_item(tree);
-        if let Some(flush_leaf) = flush_leaf {
-            tree.flush_delta_and_clear(flush_leaf, &mut self.1);
-        }
-
-        has_next
-    }
-
-    // pub(crate) fn next_entry<V: Content>(&mut self, tree: &mut ContentTree<V>) -> bool {
-    //     let (has_next, flush_leaf) = self.0.next_entry(tree);
-    //     if let Some(flush_leaf) = flush_leaf {
-    //         tree.flush_delta_and_clear(flush_leaf, &mut self.1);
-    //     }
-    //
-    //     has_next
-    // }
-
-    pub fn flush<V: Content>(self, tree: &mut ContentTree<V>) {
-        tree.flush_delta_len(self.0.leaf_idx, self.1);
-    }
-
-    pub fn flush_delta_and_clear<V: Content>(&mut self, tree: &mut ContentTree<V>) {
-        tree.flush_delta_and_clear(self.0.leaf_idx, &mut self.1);
-    }
-}
+// impl DeltaCursor {
+//     pub(crate) fn roll_next_item<V: Content>(&mut self, tree: &mut ContentTree<V>) -> bool {
+//         let (has_next, flush_leaf) = self.0.roll_next_item(tree);
+//         if let Some(flush_leaf) = flush_leaf {
+//             tree.flush_delta_and_clear(flush_leaf, &mut self.1);
+//         }
+//
+//         has_next
+//     }
+//
+//     // pub(crate) fn next_entry<V: Content>(&mut self, tree: &mut ContentTree<V>) -> bool {
+//     //     let (has_next, flush_leaf) = self.0.next_entry(tree);
+//     //     if let Some(flush_leaf) = flush_leaf {
+//     //         tree.flush_delta_and_clear(flush_leaf, &mut self.1);
+//     //     }
+//     //
+//     //     has_next
+//     // }
+//
+//     pub fn flush<V: Content>(self, tree: &mut ContentTree<V>) {
+//         tree.flush_delta_len(self.0.leaf_idx, self.1);
+//     }
+//
+//     pub fn flush_delta_and_clear<V: Content>(&mut self, tree: &mut ContentTree<V>) {
+//         tree.flush_delta_and_clear(self.0.leaf_idx, &mut self.1);
+//     }
+// }
 
 
 impl<V: Content> ContentTree<V> {
@@ -375,6 +440,7 @@ impl<V: Content> ContentTree<V> {
             root: 0,
             cursor: Default::default(),
             total_len: Default::default(),
+            update: Default::default(),
         }
     }
 
@@ -385,9 +451,52 @@ impl<V: Content> ContentTree<V> {
         self.root = 0;
         self.cursor = Default::default();
         self.total_len = Default::default();
+        self.update = Default::default();
 
         self.leaves.push(initial_root_leaf());
     }
+
+    fn flush_delta(&mut self) {
+        if self.update.is_empty() { return; }
+
+        // Clear the update and set the leaf back to usize::MAX (which isn't necessary, but its cleaner.)
+        let leaf_idx = take(&mut self.update.leaf);
+        let delta = take(&mut self.update.update);
+
+        let mut idx = self.leaves[leaf_idx.0].parent;
+        let mut child = leaf_idx.0;
+        while !idx.is_root() {
+            let n = &mut self.nodes[idx.0];
+            let pos = n.idx_of_child(child);
+            debug_assert!(pos < n.child_width.len());
+
+            n.child_width[pos % n.child_width.len()].update_by(delta);
+
+            child = idx.0;
+            idx = n.parent;
+        }
+
+        self.total_len.update_by(delta);
+    }
+
+    fn set_update_to_leaf(&mut self, leaf: LeafIdx) {
+        if self.update.leaf != leaf {
+            self.flush_delta();
+            self.update.leaf = leaf;
+        }
+    }
+
+// inc_delta_at(&mut self, leaf: LeafIdx,
+
+    fn inc_delta_at_by(&mut self, leaf: LeafIdx, e: &V) {
+        self.set_update_to_leaf(leaf);
+        inc_delta_update(&mut self.update.update, e);
+    }
+    fn dec_delta_at_by(&mut self, leaf: LeafIdx, e: &V) {
+        self.set_update_to_leaf(leaf);
+        dec_delta_update(&mut self.update.update, e);
+    }
+
 
     pub fn set_single_item_notify<F>(&mut self, item: V, notify: F)
         where F: FnOnce(V, LeafIdx)
@@ -429,11 +538,7 @@ impl<V: Content> ContentTree<V> {
 
     fn total_len(&self) -> LenPair {
         let mut len = self.total_len;
-        // Could rewrite this to branch-free code, but currently this is only used by the fuzzer
-        // so it doesn't matter.
-        if let Some((_, DeltaCursor(_, flush))) = self.cursor.as_ref() {
-            len.update_by(*flush);
-        }
+        len.update_by(self.update.update);
         len
     }
 
@@ -442,21 +547,21 @@ impl<V: Content> ContentTree<V> {
     /// The cursor ends up right after the modified item.
     ///
     /// Mutation function must not modify the item's length.
-    pub(crate) fn mutate_entry<N, MapFn, R>(&mut self, dc: &mut DeltaCursor, replace_max: usize, notify: &mut N, map_fn: MapFn) -> (usize, R)
+    pub(crate) fn mutate_entry<N, MapFn, R>(&mut self, cursor: &mut ContentCursor, replace_max: usize, notify: &mut N, map_fn: MapFn) -> (usize, R)
     where N: FnMut(V, LeafIdx), MapFn: FnOnce(&mut V) -> R
     {
-        if !dc.roll_next_item(self) { panic!("Cannot mutate at end of data structure") }
-        let DeltaCursor(cursor, delta) = dc;
+        if !cursor.roll_next_item(self).0 { panic!("Cannot mutate at end of data structure") }
         // TODO: Make a variant of roll_next_item that doesn't roll delta.
 
+        self.set_update_to_leaf(cursor.leaf_idx);
         let leaf = &mut self.leaves[cursor.leaf_idx.0];
         let entry = &mut leaf.children[cursor.elem_idx];
         let entry_len = entry.len();
         if cursor.offset == 0 && entry_len <= replace_max {
             // Replace in-place.
-            dec_delta_update(delta, entry);
+            self.update.dec_delta_without_flushing(cursor.leaf_idx, entry);
             let r = map_fn(entry);
-            inc_delta_update(delta, entry);
+            self.update.inc_delta_without_flushing(cursor.leaf_idx, entry);
             // self.flush_delta_len(cursor.leaf_idx, cursor.delta);
             cursor.offset = entry_len;
             
@@ -483,14 +588,14 @@ impl<V: Content> ContentTree<V> {
         // Otherwise we've got ourselves a situation.
         let (len, r) = if cursor.offset > 0 {
             let mut rest = entry.truncate(cursor.offset);
-            dec_delta_update(delta, &rest);
+            self.dec_delta_at_by(cursor.leaf_idx, &rest);
 
             let len = rest.len();
             if len <= replace_max {
                 // Not so bad. Just splice in the replaced item. This will automatically try and
                 // join the item to nearby items.
                 let r = map_fn(&mut rest);
-                self.insert(rest, dc, false, notify);
+                self.insert(rest, cursor, false, notify);
                 (len, r)
             } else {
                 // Ugh. We're modifying the middle of this item. We'll use splice_in_internal, which
@@ -501,7 +606,7 @@ impl<V: Content> ContentTree<V> {
                 cursor.offset = replace_max; // Cursor ends up after the item.
                 let (leaf_idx, elem_idx) = self.splice_in_internal(
                     rest, Some(remainder),
-                    cursor.leaf_idx, cursor.elem_idx + 1, delta,
+                    cursor.leaf_idx, cursor.elem_idx + 1,
                     false, notify
                 );
                 cursor.leaf_idx = leaf_idx;
@@ -514,10 +619,10 @@ impl<V: Content> ContentTree<V> {
             // There's a few ways to do this. The simplest is to just chop out the modified bit and
             // re-insert it.
             let mut e = entry.truncate_keeping_right(replace_max);
-            dec_delta_update(delta, &e);
+            self.dec_delta_at_by(cursor.leaf_idx, &e);
             // The cursor offset is already at 0.
             let r = map_fn(&mut e);
-            self.insert(e, dc, false, notify);
+            self.insert(e, cursor, false, notify);
             // splice_in will try and join the item to the previous item - which is what we want
             // here. And the cursor will be moved to right after the item in all cases.
             (replace_max, r)
@@ -527,15 +632,16 @@ impl<V: Content> ContentTree<V> {
         (len, r)
     }
 
-    pub fn insert<N>(&mut self, item: V, DeltaCursor(cursor, delta): &mut DeltaCursor, notify_here: bool, notify: &mut N)
+    pub fn insert<N>(&mut self, item: V, cursor: &mut ContentCursor, notify_here: bool, notify: &mut N)
         where N: FnMut(V, LeafIdx)
     {
         debug_assert!(item.exists());
         let mut leaf_idx = cursor.leaf_idx;
         let mut elem_idx = cursor.elem_idx;
         let mut offset = cursor.offset;
+        self.set_update_to_leaf(leaf_idx);
 
-        let node = &mut self[leaf_idx];
+        let node = &mut self.leaves[leaf_idx.0]; // Can't use self[leaf_idx] because of borrowck.
         debug_assert_ne!(offset, usize::MAX);
 
         let remainder = if offset == 0 && elem_idx > 0 {
@@ -554,7 +660,7 @@ impl<V: Content> ContentTree<V> {
             // splice the item into the current cursor location.
             let entry: &mut V = &mut node.children[elem_idx];
             let remainder = entry.truncate(offset);
-            dec_delta_update(delta, &remainder);
+            self.update.dec_delta_without_flushing(leaf_idx, &remainder);
             // We don't need to update cursor since its already where it needs to be.
 
             Some(remainder)
@@ -566,7 +672,7 @@ impl<V: Content> ContentTree<V> {
             // Try and append as much as we can after the current entry
             let cur_entry: &mut V = &mut node.children[elem_idx];
             if cur_entry.can_append(&item) {
-                inc_delta_update(delta, &item);
+                self.update.inc_delta_without_flushing(leaf_idx, &item);
                 // flush_marker += next.content_len() as isize;
                 if notify_here { notify(item, leaf_idx); }
                 cur_entry.append(item);
@@ -574,7 +680,7 @@ impl<V: Content> ContentTree<V> {
                 cursor.offset = cur_entry.len();
 
                 if let Some(remainder) = remainder {
-                    let (leaf_idx_2, elem_idx_2) = self.splice_in_internal(remainder, None, leaf_idx, elem_idx + 1, delta, notify_here, notify);
+                    let (leaf_idx_2, elem_idx_2) = self.splice_in_internal(remainder, None, leaf_idx, elem_idx + 1, notify_here, notify);
                     // If the remainder was inserted into a new item, we might need to update the
                     // cursor.
                     if leaf_idx_2 != leaf_idx {
@@ -583,12 +689,6 @@ impl<V: Content> ContentTree<V> {
                             // remainder.
                             cursor.leaf_idx = leaf_idx_2;
                             cursor.elem_idx = elem_idx_2 - 1;
-                        } else {
-                            // The remainder is on a subsequent element. This is fine, but now delta
-                            // refers to the item the remainder is on, not the cursor element.
-                            // So we need to flush it.
-                            // TODO: Urgh this is gross. Rewrite me!
-                            self.flush_delta_and_clear(leaf_idx_2, delta);
                         }
                     }
                 }
@@ -616,7 +716,7 @@ impl<V: Content> ContentTree<V> {
                 // when the cursor is at the end of the current node. That might be worth trying!
                 let cur_entry = &mut node.children[elem_idx];
                 if item.can_append(cur_entry) {
-                    inc_delta_update(delta, &item);
+                    self.update.inc_delta_without_flushing(leaf_idx, &item);
                     // Always notify for the item itself.
                     if notify_here { notify(item, leaf_idx); }
                     // trailing_offset += item.len();
@@ -630,18 +730,18 @@ impl<V: Content> ContentTree<V> {
         }
 
         cursor.offset = item.len();
-        (leaf_idx, elem_idx) = self.splice_in_internal(item, remainder, leaf_idx, elem_idx, delta, notify_here, notify);
+        (leaf_idx, elem_idx) = self.splice_in_internal(item, remainder, leaf_idx, elem_idx, notify_here, notify);
         cursor.leaf_idx = leaf_idx;
         cursor.elem_idx = elem_idx;
     }
 
     /// Splice in an item, and optionally remainder afterwards. Returns the (leaf_idx, elem_idx) of
     /// the inserted item, but NOT the remainder.
-    fn splice_in_internal<N>(&mut self, item: V, remainder: Option<V>, mut leaf_idx: LeafIdx, mut elem_idx: usize, delta: &mut LenUpdate, notify_here: bool, notify: &mut N) -> (LeafIdx, usize)
+    fn splice_in_internal<N>(&mut self, item: V, remainder: Option<V>, mut leaf_idx: LeafIdx, mut elem_idx: usize, notify_here: bool, notify: &mut N) -> (LeafIdx, usize)
         where N: FnMut(V, LeafIdx)
     {
         let space_needed = 1 + remainder.is_some() as usize;
-        let (new_leaf_idx, new_elem_idx) = self.make_space_in_leaf_for(space_needed, leaf_idx, elem_idx, delta, notify);
+        let (new_leaf_idx, new_elem_idx) = self.make_space_in_leaf_for(space_needed, leaf_idx, elem_idx, notify);
         // Only call notify if either we're notifying in all cases, or if the item is inserted into
         // a different leaf than we were passed.
         let moved = new_leaf_idx != leaf_idx;
@@ -649,54 +749,47 @@ impl<V: Content> ContentTree<V> {
 
         (leaf_idx, elem_idx) = (new_leaf_idx, new_elem_idx);
 
+        // The leaf index may have changed.
+        self.inc_delta_at_by(leaf_idx, &item);
+
         let leaf = &mut self.leaves[leaf_idx.0];
-        inc_delta_update(delta, &item);
         leaf.children[elem_idx] = item;
 
         if let Some(remainder) = remainder {
             if moved { notify(remainder, leaf_idx); }
-            inc_delta_update(delta, &remainder);
+            // self.inc_delta_at_by(leaf_idx, &remainder);
+            self.update.inc_delta_without_flushing(leaf_idx, &remainder);
             leaf.children[elem_idx + 1] = remainder;
         }
 
         (leaf_idx, elem_idx)
     }
 
-    fn flush_delta_len(&mut self, leaf_idx: LeafIdx, delta: LenUpdate) {
-        if delta.is_empty() { return; }
-
-        let mut idx = self.leaves[leaf_idx.0].parent;
-        let mut child = leaf_idx.0;
-        while !idx.is_root() {
-            let n = &mut self.nodes[idx.0];
-            let pos = n.idx_of_child(child);
-            debug_assert!(pos < n.child_width.len());
-
-            n.child_width[pos % n.child_width.len()].update_by(delta);
-
-            child = idx.0;
-            idx = n.parent;
-        }
-
-        self.total_len.update_by(delta);
-    }
-
-    #[inline]
-    fn flush_delta_and_clear(&mut self, leaf_idx: LeafIdx, delta: &mut LenUpdate) {
-        self.flush_delta_len(leaf_idx, take(delta));
-    }
-
-    // #[inline]
-    // pub fn flush_cursor_delta(&mut self, cursor: MutContentCursor) {
-    //     self.flush_delta_len(cursor.leaf_idx, cursor.delta);
-    // }
-    // #[inline]
-    // fn flush_cursor_delta_and_clear(&mut self, cursor: &mut MutContentCursor) {
-    //     self.flush_delta_len(cursor.inner.leaf_idx, take(&mut cursor.delta));
+    // fn flush_delta_len(&mut self, leaf_idx: LeafIdx, delta: LenUpdate) {
+    //     if delta.is_empty() { return; }
+    //
+    //     let mut idx = self.leaves[leaf_idx.0].parent;
+    //     let mut child = leaf_idx.0;
+    //     while !idx.is_root() {
+    //         let n = &mut self.nodes[idx.0];
+    //         let pos = n.idx_of_child(child);
+    //         debug_assert!(pos < n.child_width.len());
+    //
+    //         n.child_width[pos % n.child_width.len()].update_by(delta);
+    //
+    //         child = idx.0;
+    //         idx = n.parent;
+    //     }
+    //
+    //     self.total_len.update_by(delta);
     // }
 
+    // #[inline]
+    // fn flush_delta_and_clear(&mut self, leaf_idx: LeafIdx, delta: &mut LenUpdate) {
+    //     self.flush_delta_len(leaf_idx, take(delta));
+    // }
 
-    fn make_space_in_leaf_for<F>(&mut self, space_wanted: usize, mut leaf_idx: LeafIdx, mut elem_idx: usize, delta_len: &mut LenUpdate, notify: &mut F) -> (LeafIdx, usize)
+    fn make_space_in_leaf_for<F>(&mut self, space_wanted: usize, mut leaf_idx: LeafIdx, mut elem_idx: usize, notify: &mut F) -> (LeafIdx, usize)
         where F: FnMut(V, LeafIdx)
     {
         assert!(space_wanted == 1 || space_wanted == 2);
@@ -708,7 +801,7 @@ impl<V: Content> ContentTree<V> {
             // memcpy is cheap.
             leaf.children.copy_within(elem_idx..LEAF_CHILDREN - space_wanted, elem_idx + space_wanted);
         } else {
-            self.flush_delta_and_clear(leaf_idx, delta_len);
+            self.flush_delta();
             let new_node = self.split_leaf(leaf_idx, notify);
 
             if elem_idx >= LEAF_SPLIT_POINT {
@@ -997,7 +1090,7 @@ impl<V: Content> ContentTree<V> {
     // }
 
     // Returns the end length slid past
-    fn slide_cursor_to_next_content<F: FlushUpdate>(&mut self, cursor: &mut ContentCursor, flush: &mut F) -> usize {
+    fn slide_cursor_to_next_content(&mut self, cursor: &mut ContentCursor) -> usize {
         let mut leaf = &self.leaves[cursor.leaf_idx.0];
         let e = &leaf.children[cursor.elem_idx];
         // if cursor.offset < e.len()
@@ -1016,8 +1109,7 @@ impl<V: Content> ContentTree<V> {
                 // Go to next leaf.
                 let next_leaf = leaf.next_leaf;
                 if next_leaf.exists() {
-                    flush.flush_and_clear(self, cursor.leaf_idx);
-                    // self.flush_cursor_delta_and_clear(cursor);
+                    // flush.flush_and_clear(self, cursor.leaf_idx);
                     cursor.leaf_idx = next_leaf;
                     leaf = &self.leaves[cursor.leaf_idx.0];
                     cursor.elem_idx = 0;
@@ -1038,27 +1130,72 @@ impl<V: Content> ContentTree<V> {
 
         end_slide_len
     }
+    // // Returns the end length slid past
+    // fn slide_cursor_to_next_content<F: FlushUpdate>(&mut self, cursor: &mut ContentCursor, flush: &mut F) -> usize {
+    //     let mut leaf = &self.leaves[cursor.leaf_idx.0];
+    //     let e = &leaf.children[cursor.elem_idx];
+    //     // if cursor.offset < e.len()
+    //     if !e.exists() || (e.takes_up_space::<true>() && cursor.offset < e.len()) { return 0; }
+    //
+    //     let mut end_slide_len = if e.takes_up_space::<false>() {
+    //         e.len() - cursor.offset
+    //     } else { 0 };
+    //     cursor.elem_idx += 1;
+    //     cursor.offset = 0;
+    //
+    //     loop {
+    //         // This walks linearly through the nodes. It would be "big-O faster" to walk up and down
+    //         // the tree in this case, but I think this will usually be faster in practice.
+    //         if cursor.elem_idx >= leaf.children.len() || !leaf.children[cursor.elem_idx].exists() {
+    //             // Go to next leaf.
+    //             let next_leaf = leaf.next_leaf;
+    //             if next_leaf.exists() {
+    //                 flush.flush_and_clear(self, cursor.leaf_idx);
+    //                 // self.flush_cursor_delta_and_clear(cursor);
+    //                 cursor.leaf_idx = next_leaf;
+    //                 leaf = &self.leaves[cursor.leaf_idx.0];
+    //                 cursor.elem_idx = 0;
+    //             } else {
+    //                 // The cursor points past the end of the list. !@#?
+    //                 panic!("Unreachable?");
+    //             }
+    //         }
+    //
+    //         let e = &leaf.children[cursor.elem_idx];
+    //         if e.takes_up_space::<true>() {
+    //             break;
+    //         }
+    //
+    //         end_slide_len += e.content_len_end();
+    //         cursor.elem_idx += 1;
+    //     }
+    //
+    //     end_slide_len
+    // }
 
 
-    pub fn cursor_at_start(&mut self) -> ContentCursor {
-        // I'm never using the cached cursor here because it may have slid to the next content.
-        if let Some((_, DeltaCursor(cursor, delta))) = self.cursor.take() {
-            self.flush_delta_len(cursor.leaf_idx, delta);
-            // self.flush_cursor_delta(cursor)
-        }
+    // TODO: Refactor these three functions. The distinctions were once needed, but not any more.
+    fn cursor_at_start(&mut self) -> ContentCursor {
+        // // I'm never using the cached cursor here because it may have slid to the next content.
+        // if let Some((_, DeltaCursor(cursor, delta))) = self.cursor.take() {
+        //     self.flush_delta_len(cursor.leaf_idx, delta);
+        //     // self.flush_cursor_delta(cursor)
+        // }
+        self.cursor = None; // Wipe the cached cursor, if there is one.
 
         // This is always valid because there is always at least 1 leaf item, and its always
         // the first item in the tree.
         ContentCursor::default().into()
     }
 
+    // TODO: Remove this function.
     pub fn cursor_at_start_nothing_emplaced(&self) -> ContentCursor {
         debug_assert!(self.cursor.is_none());
         ContentCursor::default().into()
     }
 
-    pub fn mut_cursor_at_start(&mut self) -> DeltaCursor {
-        DeltaCursor(self.cursor_at_start(), Default::default())
+    pub fn mut_cursor_at_start(&mut self) -> ContentCursor {
+        self.cursor_at_start()
     }
 
     // fn cursor_at_content_pos<const IS_CUR: bool>(&self, content_pos: usize) -> (LenUpdate, ContentCursor) {
@@ -1070,18 +1207,18 @@ impl<V: Content> ContentTree<V> {
     ///
     /// We never "stick end" - ie, the cursor is moved to the start of the next item with actual
     /// content.
-    pub fn mut_cursor_before_cur_pos(&mut self, content_pos: usize) -> (usize, DeltaCursor) {
+    pub fn mut_cursor_before_cur_pos(&mut self, content_pos: usize) -> (usize, ContentCursor) {
         if let Some((pos, mut cursor)) = self.cursor.take() {
             if let Some(mut pos) = pos {
                 if pos.cur == content_pos {
-                    pos.end += self.slide_cursor_to_next_content(&mut cursor.0, &mut cursor.1);
+                    pos.end += self.slide_cursor_to_next_content(&mut cursor);
                     return (pos.end, cursor);
                 }
             }
-
-            // Throw the old cursor away.
-            cursor.flush(self);
         }
+
+        // Otherwise flush the delta. We need all the positions correct to scan.
+        self.flush_delta();
 
         // Make a cursor by descending from the root.
         let mut idx = self.root;
@@ -1106,11 +1243,11 @@ impl<V: Content> ContentTree<V> {
 
         (
             end_pos + rel_end_pos,
-            DeltaCursor(ContentCursor {
+            ContentCursor {
                 leaf_idx: LeafIdx(idx),
                 elem_idx,
                 offset,
-            }, Default::default())
+            }
         )
     }
 
@@ -1118,44 +1255,41 @@ impl<V: Content> ContentTree<V> {
     //
     // }
 
-    pub(crate) fn emplace_cursor(&mut self, pos: LenPair, cursor: DeltaCursor) {
-        assert!(self.cursor.is_none());
+    pub(crate) fn emplace_cursor(&mut self, pos: LenPair, cursor: ContentCursor) {
+        debug_assert!(self.cursor.is_none()); // This shouldn't actually matter.
         self.cursor = Some((Some(pos), cursor));
 
         if cfg!(debug_assertions) {
-            let actual_pos = self.cursor.clone().unwrap().1.0.get_pos(self);
+            let actual_pos = self.cursor.clone().unwrap().1.dbg_get_cursor_pos(self);
             assert_eq!(pos, actual_pos);
         }
     }
 
     // This function is useful because we can fetch a cursor without a delta, and the delta won't get
     // flushed until later.
-    pub(crate) fn emplace_cursor_unknown(&mut self, cursor: DeltaCursor) {
+    pub(crate) fn emplace_cursor_unknown(&mut self, cursor: ContentCursor) {
         assert!(self.cursor.is_none());
         self.cursor = Some((None, cursor));
     }
 
-    pub(crate) fn try_find_item(&mut self, id: V::Item) -> Option<DeltaCursor>
+    /// Try to find the requested item in the leaf pointed to by the cursor. Cached cursor is
+    /// flushed regardless.
+    pub(crate) fn try_find_item(&mut self, id: V::Item) -> Option<ContentCursor>
     where V: Searchable
     {
         if let Some((_pos, cursor)) = self.cursor.take() {
-            let leaf = &self[cursor.0.leaf_idx];
+            let leaf = &self[cursor.leaf_idx];
 
             for (elem_idx, e) in leaf.children.iter().enumerate() {
                 if let Some(offset) = e.get_offset(id) {
                     // Yeeeee we found it!
-                    return Some(DeltaCursor(
-                        ContentCursor {
-                            leaf_idx: cursor.0.leaf_idx,
-                            elem_idx,
-                            offset,
-                        },
-                        cursor.1
-                    ));
+                    return Some(ContentCursor {
+                        leaf_idx: cursor.leaf_idx,
+                        elem_idx,
+                        offset,
+                    });
                 }
             }
-
-            cursor.flush(self);
         }
         None
     }
@@ -1174,11 +1308,11 @@ impl<V: Content> ContentTree<V> {
 
     // This returns a LenPair when it can. Ideally, give this back when emplacing the returned
     // cursor.
-    pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (DeltaCursor, Option<LenPair>)
+    pub(crate) fn mut_cursor_before_item(&mut self, id: V::Item, leaf_idx: LeafIdx) -> (ContentCursor, Option<LenPair>)
         where V: Searchable
     {
         if let Some((mut pos, mut cursor)) = self.cursor.take() {
-            let (item, cur_offset) = cursor.0.get_item(self);
+            let (item, cur_offset) = cursor.get_item(self);
             if let Some(actual_offset) = item.get_offset(id) {
                 // The cursor already points to the item.
             
@@ -1193,17 +1327,17 @@ impl<V: Content> ContentTree<V> {
                         pos.cur += actual_offset;
                     }
                 }
-                cursor.0.offset = actual_offset;
+                cursor.offset = actual_offset;
             
                 if let Some(pos) = pos {
-                    debug_assert_eq!(cursor.0.get_pos(self), pos);
+                    debug_assert_eq!(cursor.dbg_get_cursor_pos(self), pos);
                 }
             
                 return (cursor, pos);
-            } else if cursor.0.elem_idx > 0 {
+            } else if cursor.elem_idx > 0 {
                 // Try the previous item.
-                let leaf = &self.leaves[cursor.0.leaf_idx.0];
-                let prev_elem = &leaf.children[cursor.0.elem_idx - 1];
+                let leaf = &self.leaves[cursor.leaf_idx.0];
+                let prev_elem = &leaf.children[cursor.elem_idx - 1];
                 if let Some(actual_offset) = prev_elem.get_offset(id) {
                     // Ok.
                     if let Some(pos) = pos.as_mut() {
@@ -1221,24 +1355,21 @@ impl<V: Content> ContentTree<V> {
                         }
                     }
 
-                    cursor.0.elem_idx -= 1;
-                    cursor.0.offset = actual_offset;
+                    cursor.elem_idx -= 1;
+                    cursor.offset = actual_offset;
 
                     if let Some(pos) = pos {
-                        debug_assert_eq!(cursor.0.get_pos(self), pos);
+                        debug_assert_eq!(cursor.dbg_get_cursor_pos(self), pos);
                     }
 
                     // cache_hit();
                     return (cursor, pos);
                 }
             }
-
-            // Throw the old cursor away.
-            cursor.flush(self);
         }
 
         // Otherwise just make a fresh cursor.
-        (DeltaCursor(self.cursor_before_item(id, leaf_idx), LenUpdate::default()), None)
+        (self.cursor_before_item(id, leaf_idx), None)
     }
 
     fn first_leaf(&self) -> LeafIdx {
@@ -1318,13 +1449,9 @@ impl<V: Content> ContentTree<V> {
                 .map(|c| c.content_len_pair())
                 .sum();
 
-            let mut delta = None;
-            if let Some((_pos, DeltaCursor(cursor, c_delta))) = self.cursor.as_ref() {
-                if cursor.leaf_idx.0 == idx {
-                    delta = Some(*c_delta);
-                }
-            }
-
+            let delta = if self.update.leaf.0 == idx {
+                Some(self.update.update)
+            } else { None };
             // assert_eq!(leaf_size, expect_size);
 
             (leaf_size, leaf.next_leaf, delta)
@@ -1369,7 +1496,7 @@ impl<V: Content> ContentTree<V> {
         // dbg!(actual_len, delta, self.total_len);
         let mut total_len = self.total_len;
         total_len.update_by(delta.unwrap_or_default());
-        assert_eq!(actual_len, total_len);
+        assert_eq!(actual_len, total_len, "Total tree length is wrong");
 
         assert_eq!(last_next_ptr.0, usize::MAX);
     }
@@ -1377,6 +1504,10 @@ impl<V: Content> ContentTree<V> {
 
     #[allow(unused)]
     pub(crate) fn dbg_check(&self) {
+        if !cfg!(debug_assertions) {
+            panic!("dbg_check called in release mode. Comment this out if this is intentional.");
+        }
+        
         // Invariants:
         // - Except for the root item, all leaves must have at least 1 data entry.
         // - The next pointers iterate through all items in sequence
@@ -1386,6 +1517,11 @@ impl<V: Content> ContentTree<V> {
         // This code does 2 traversals of the data structure:
         // 1. We walk the leaves by following next_leaf pointers in each leaf node
         // 2. We recursively walk the tree
+
+        if !self.update.leaf.exists() {
+            // If the leaf isn't specified, the update must be zero.
+            assert_eq!(self.update.update, Default::default());
+        }
 
         // Walk the tree structure in the nodes.
         self.dbg_check_walk();
@@ -1436,6 +1572,49 @@ impl<V: Content> ContentTree<V> {
 
         // let (lv, cursor) = self.cursor.get();
         // self.check_cursor_at(cursor, lv, false);
+    }
+
+    pub(crate) fn dbg_print(&self) where V: Debug {
+        println!("------ Content Tree ------");
+        println!("size {:?} (cached {:?})", self.total_len(), self.total_len);
+        println!("cursor {:?}", self.cursor);
+
+        println!("height {}", self.height);
+        println!("root {}", self.root);
+
+
+        fn print_node<V: Content + Debug>(tree: &ContentTree<V>, indent_amt: usize, depth: usize, idx: usize) {
+            let indent = "  ".repeat(indent_amt);
+
+            if depth == tree.height {
+                // Leaf node
+                if tree.update.leaf.0 == idx {
+                    println!("{indent}UPDATE IS HERE! {:?}", tree.update.update);
+                }
+
+                let leaf = &tree.leaves[idx];
+                for (i, child) in leaf.children.iter().enumerate() {
+                    if !child.exists() { break; }
+                    println!("{indent}{i}: ({:?}) {:?}", child.content_len_pair(), child);
+                }
+                println!("{indent}  next leaf {}", leaf.next_leaf.0);
+            } else {
+                // Internal node
+                let node = &tree.nodes[idx];
+                println!("{indent}Node {idx} parent {}", node.parent.0);
+                for i in 0..NODE_CHILDREN {
+                    let child = node.child_indexes[i];
+                    if child == usize::MAX { break; }
+                    println!("{indent}{i}: Node child {} width {:?}", child, node.child_width[i]);
+
+                    // TODO: Check the parent is correct.
+                    print_node(tree, indent_amt + 1, depth + 1, child);
+                }
+            }
+        }
+
+        print_node(self, 0, 0, self.root);
+        println!("--------------------------");
     }
 
     pub(crate) fn iter_leaves(&self) -> ContentLeafIter<'_, V> {
@@ -1517,7 +1696,7 @@ mod test {
     use crate::list_fuzzer_tools::fuzz_multithreaded;
     use crate::ost::{LeafIdx, LenPair};
 
-    use super::{Content, ContentTree, DeltaCursor};
+    use super::{Content, ContentTree};
 
     /// This is a simple span object for testing.
     #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1627,7 +1806,7 @@ mod test {
         // tree.dbg_check(); // checking here doesn't work because we have an outstanding cursor.
         // dbg!(&cursor);
 
-        cursor.0.offset = 2;
+        cursor.offset = 2;
         tree.insert(TestRange {
             id: 321,
             len: 20,
@@ -1693,7 +1872,7 @@ mod test {
 
         let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(1);
         assert_eq!(end_pos, 1);
-        cursor.0.elem_idx += 1; cursor.0.offset = 3; // hack hack hack.
+        cursor.elem_idx += 1; cursor.offset = 3; // hack hack hack.
         let (len, _r) = tree.mutate_entry(&mut cursor, 5, &mut panic_notify, |e| {
             // dbg!(&e);
             e.is_activated = true;
@@ -1797,8 +1976,11 @@ mod test {
             if verbose { println!("i: {}", _i); }
             // println!("i: {}", _i);
 
-            // if _i == 9 {
+            // if _i == 5 {
             //     println!("asdf");
+            //     dbg!(&tree);
+            //     tree.dbg_check();
+            //     tree.dbg_print();
             //     // verbose = true;
             // }
 
@@ -1824,7 +2006,7 @@ mod test {
                     } else {
                         // // Equivalent of getting a cursor with stick_end: true.
                         let (end_pos, mut cursor) = tree.mut_cursor_before_cur_pos(cur_pos - 1);
-                        cursor.0.inc_offset(&tree);
+                        cursor.inc_offset(&tree);
                         (end_pos + 1, cursor)
                     };
                     // let mut cursor = tree.cursor_at_content_pos::<false>(pos);
@@ -1844,7 +2026,6 @@ mod test {
                     // assert_eq!(pre_pos + item.content_len_pair(), post_pos);
                 }
             } else {
-
                 let gen_range = |rng: &mut SmallRng, range: Range<usize>| {
                     if range.is_empty() { range.start }
                     else { rng.gen_range(range) }
@@ -1859,6 +2040,8 @@ mod test {
                 debug_assert!(modify_len <= tree.total_len().cur);
                 let pos = gen_range(&mut rng, 0..tree.total_len().cur - modify_len);
                 let new_is_active = rng.gen_bool(0.5);
+
+                if verbose { println!("Modifying {}..{} setting active={}", pos, pos + modify_len, new_is_active); }
 
                 // Update check tree
                 check_tree.mutate_entries_before_content(pos, modify_len, |e| {
@@ -1901,9 +2084,11 @@ mod test {
         //
         //     fuzz(seed, true);
         // }
-        fuzz(0, true);
+        fuzz(1, true);
     }
 
+    // Run with:
+    // cargo test --release -- --ignored content_tree_fuzz_forever --nocapture
     #[test]
     #[ignore]
     fn content_tree_fuzz_forever() {
@@ -1915,7 +2100,3 @@ mod test {
         })
     }
 }
-
-
-
-
