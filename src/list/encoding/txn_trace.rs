@@ -326,7 +326,7 @@ impl Graph {
     /// behaviour in the presence of multiple interleaved branches. (Eg if you're streaming from two
     /// peers concurrently editing different branches).
     #[allow(unused)] // Used by testing at least.
-    pub(crate) fn txn_spanning_tree_iter(&self) -> SpanningTreeWalker {
+    pub(crate) fn txn_spanning_tree_iter(&self) -> SpanningTreeWalker<'_> {
         SpanningTreeWalker::new_all(self)
     }
 
@@ -340,7 +340,7 @@ impl Graph {
     //     self.known_conflicting_txns_iter(self.find_conflicting_simple(a, b))
     // }
 
-    pub(crate) fn optimized_txns_between(&self, from: &[LV], to: &[LV]) -> SpanningTreeWalker {
+    pub(crate) fn optimized_txns_between(&self, from: &[LV], to: &[LV]) -> SpanningTreeWalker<'_> {
         let (_a, txns) = self.diff_rev(from, to);
         // _a might always be empty.
         SpanningTreeWalker::new(self, &txns, from.into())

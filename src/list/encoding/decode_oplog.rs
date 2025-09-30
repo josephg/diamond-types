@@ -194,7 +194,7 @@ impl<'a> ChunkReader<'a> {
         }
     }
 
-    fn read_fileinfo(&mut self, oplog: &mut ListOpLog) -> Result<FileInfoData, ParseError> {
+    fn read_fileinfo(&mut self, oplog: &mut ListOpLog) -> Result<FileInfoData<'_>, ParseError> {
         let mut fileinfo = self.expect_chunk(ListChunkType::FileInfo)?.chunks();
 
         let doc_id = fileinfo.read_chunk_if_eq(ListChunkType::DocId)?;

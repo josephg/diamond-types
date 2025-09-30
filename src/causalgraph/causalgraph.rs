@@ -246,7 +246,7 @@ impl CausalGraph {
         self.graph.make_simple_graph(self.version.as_ref())
     }
 
-    pub fn remote_frontier(&self) -> RemoteFrontier {
+    pub fn remote_frontier(&self) -> RemoteFrontier<'_> {
         self.agent_assignment.local_to_remote_frontier(self.version.as_ref())
     }
 

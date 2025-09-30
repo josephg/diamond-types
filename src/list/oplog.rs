@@ -370,7 +370,7 @@ impl ListOpLog {
         self.cg.version.clone()
     }
 
-    pub fn remote_frontier(&self) -> RemoteFrontier {
+    pub fn remote_frontier(&self) -> RemoteFrontier<'_> {
         self.cg.agent_assignment.local_to_remote_frontier(self.cg.version.as_ref())
     }
 

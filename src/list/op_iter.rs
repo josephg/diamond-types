@@ -152,16 +152,16 @@ impl<'a> Iterator for OpIterRanges<'a> {
 impl ListOpLog {
     // TODO: Consider removing these functions if they're never used.
     #[allow(unused)]
-    pub(crate) fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter {
+    pub(crate) fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter<'_> {
         OpMetricsIter::new(&self.operations, &self.operation_ctx, range)
     }
 
     #[allow(unused)]
-    pub(crate) fn iter_metrics(&self) -> OpMetricsIter {
+    pub(crate) fn iter_metrics(&self) -> OpMetricsIter<'_> {
         self.iter_metrics_range((0..self.len()).into())
     }
 
-    pub(crate) fn iter_range_simple(&self, range: DTRange) -> OpMetricsWithContent {
+    pub(crate) fn iter_range_simple(&self, range: DTRange) -> OpMetricsWithContent<'_> {
         OpMetricsWithContent::new(self, range)
     }
 
@@ -172,7 +172,7 @@ impl ListOpLog {
             .map(|pair| (pair.0.1, pair.1).into())
     }
 
-    pub(crate) fn iter_fast(&self) -> OpMetricsWithContent {
+    pub(crate) fn iter_fast(&self) -> OpMetricsWithContent<'_> {
         OpMetricsWithContent::new(self, (0..self.len()).into())
     }
 

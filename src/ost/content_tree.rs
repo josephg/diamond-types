@@ -1280,7 +1280,7 @@ impl<V: Content> ContentTree<V> {
 
     /// Iterate over the contents of the index. Note the index tree may contain extra entries
     /// for items within the range, with a value of V::default.
-    pub fn iter(&self) -> ContentTreeIter<V> {
+    pub fn iter(&self) -> ContentTreeIter<'_, V> {
         ContentTreeIter {
             tree: self,
             // If the iterator points to a valid leaf, it should never be empty. This makes the

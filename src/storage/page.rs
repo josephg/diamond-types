@@ -333,7 +333,7 @@ impl<const T: usize> Page<T> {
         }
     }
 
-    fn make_parser(&self) -> BufParser {
+    fn make_parser(&self) -> BufParser<'_> {
         BufParser(self.get_content())
     }
 

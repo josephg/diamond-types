@@ -15,7 +15,7 @@ impl ListOpLog {
         self.cg.graph.make_m1_plan(Some(&self.operations), &[], self.cg.version.as_ref(), false);
     }
 
-    pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIterRaw {
+    pub(crate) fn get_xf_operations_full(&self, from: FrontierRef, merging: FrontierRef) -> TransformedOpsIterRaw<'_> {
         TransformedOpsIterRaw::new(&self.cg.graph, &self.cg.agent_assignment,
                                 &self.operation_ctx, &self.operations,
                                 from, merging)

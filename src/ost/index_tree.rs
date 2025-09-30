@@ -1210,7 +1210,7 @@ impl<V: Default + IndexContent> IndexTree<V> {
 
     /// Iterate over the contents of the index. Note the index tree may contain extra entries
     /// for items within the range, with a value of V::default.
-    pub fn iter(&self) -> IndexTreeIter<V> {
+    pub fn iter(&self) -> IndexTreeIter<'_, V> {
         IndexTreeIter {
             tree: self,
             leaf_idx: self.first_leaf(),
