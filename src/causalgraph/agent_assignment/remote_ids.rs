@@ -123,14 +123,14 @@ impl AgentAssignment {
         self.client_data[agent as usize].seq_to_lv(seq)
     }
 
-    pub(crate) fn agent_version_to_remote(&self, (agent, seq): AgentVersion) -> RemoteVersion {
+    pub(crate) fn agent_version_to_remote(&self, (agent, seq): AgentVersion) -> RemoteVersion<'_> {
         RemoteVersion(
             self.get_agent_name(agent),
             seq
         )
     }
 
-    pub(crate) fn agent_span_to_remote(&self, loc: AgentSpan) -> RemoteVersionSpan {
+    pub(crate) fn agent_span_to_remote(&self, loc: AgentSpan) -> RemoteVersionSpan<'_> {
         RemoteVersionSpan(
             self.get_agent_name(loc.agent),
             loc.seq_range
@@ -146,14 +146,14 @@ impl AgentAssignment {
         (agent, seq)
     }
 
-    pub fn local_to_remote_version(&self, v: LV) -> RemoteVersion {
+    pub fn local_to_remote_version(&self, v: LV) -> RemoteVersion<'_> {
         let agent_v = self.local_to_agent_version(v);
         self.agent_version_to_remote(agent_v)
     }
 
     /// **NOTE:** This method will return a version span with length min(lv, agent_v). The
     /// resulting length will NOT be guaranteed to be the same as the input.
-    pub fn local_to_remote_version_span(&self, v: DTRange) -> RemoteVersionSpan {
+    pub fn local_to_remote_version_span(&self, v: DTRange) -> RemoteVersionSpan<'_> {
         let agent_span = self.local_span_to_agent_span(v);
         self.agent_span_to_remote(agent_span)
     }

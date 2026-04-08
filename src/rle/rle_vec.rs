@@ -68,11 +68,11 @@ impl<V: HasLength + MergableSpan + Sized> RleVec<V> {
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
     #[inline]
-    pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
+    pub fn iter(&self) -> std::slice::Iter<'_, V> { self.0.iter() }
 
-    pub fn iter_from_idx(&self, idx: usize) -> std::slice::Iter<V> { self.0[idx..].iter() }
+    pub fn iter_from_idx(&self, idx: usize) -> std::slice::Iter<'_, V> { self.0[idx..].iter() }
 
-    pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<V>>> { self.0.iter().cloned().merge_spans() }
+    pub fn iter_merged(&self) -> MergeIter<Cloned<std::slice::Iter<'_, V>>> { self.0.iter().cloned().merge_spans() }
 
     pub fn get_stats(&self) -> RleStats {
         RleStats {
@@ -542,7 +542,7 @@ pub struct RleVecRangeIter<'a, V: HasRleKey + HasLength, I: SplitableSpanCtx, F:
 }
 
 impl<V: HasLength + HasRleKey + SplitableSpanCtx + MergableSpan> RleVec<V> {
-    pub fn iter_range(&self, range: DTRange) -> RleVecRangeIter<V, V, impl Fn(&V) -> V> where V: SplitableSpan {
+    pub fn iter_range(&self, range: DTRange) -> RleVecRangeIter<'_, V, V, impl Fn(&V) -> V> where V: SplitableSpan {
         self.iter_range_ctx(range, &())
     }
 
@@ -554,7 +554,7 @@ impl<V: HasLength + HasRleKey + SplitableSpanCtx + MergableSpan> RleVec<V> {
 
 impl<V: HasLength + HasRleKey + MergableSpan> RleVec<V> {
     // Yeah these map functions are dirty, but only at compile time. At runtime they should be free.
-    pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<V, I, F> {
+    pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<'_, V, I, F> {
         self.iter_range_map_ctx(range, &(), map_fn)
     }
 

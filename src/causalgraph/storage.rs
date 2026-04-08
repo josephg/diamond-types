@@ -269,7 +269,7 @@ impl CGStorage {
         Ok(active_blit)
     }
 
-    fn read_blit(buf: &[u8]) -> Result<Blit, CGError> {
+    fn read_blit(buf: &[u8]) -> Result<Blit<'_>, CGError> {
         // Blits always start with a checksum,
         // dbg!(buf);
         let mut pos = 0;

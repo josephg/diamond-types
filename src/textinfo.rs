@@ -20,14 +20,14 @@ pub(crate) struct TextInfo {
 }
 
 impl TextInfo {
-    pub fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter {
+    pub fn iter_metrics_range(&self, range: DTRange) -> OpMetricsIter<'_> {
         OpMetricsIter::new(&self.ops, &self.ctx, range)
     }
-    pub fn iter_metrics(&self) -> OpMetricsIter {
+    pub fn iter_metrics(&self) -> OpMetricsIter<'_> {
         OpMetricsIter::new(&self.ops, &self.ctx, (0..self.ops.end()).into())
     }
 
-    pub fn iter_fast(&self) -> OpMetricsWithContent {
+    pub fn iter_fast(&self) -> OpMetricsWithContent<'_> {
         self.iter_metrics().into()
     }
 

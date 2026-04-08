@@ -552,7 +552,7 @@ impl<F: DTFile> StorageEngine<F> {
     }
 
     // TODO: I wish this didn't need to be &mut.
-    fn iter_data_pages(&mut self, kind: DataPageType) -> DataChunkIterator<F> {
+    fn iter_data_pages(&mut self, kind: DataPageType) -> DataChunkIterator<'_, F> {
         // assert!(!self.header_dirty);
         // assert!(!self.data_chunks.iter().flatten().any(|d| d.dirty));
 

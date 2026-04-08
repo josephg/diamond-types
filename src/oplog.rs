@@ -468,7 +468,7 @@ impl OpLog {
 }
 
 impl OpLog {
-    fn crdt_name_to_remote(&self, crdt: LVKey) -> RemoteVersion {
+    fn crdt_name_to_remote(&self, crdt: LVKey) -> RemoteVersion<'_> {
         if crdt == ROOT_CRDT_ID {
             RemoteVersion("ROOT", 0)
         } else {
@@ -487,7 +487,7 @@ impl OpLog {
     //     crdt.iter_xf_operations_from(&sel)
     // }
 
-    pub fn ops_since(&self, since_frontier: &[LV]) -> SerializedOps {
+    pub fn ops_since(&self, since_frontier: &[LV]) -> SerializedOps<'_> {
         let mut write_map = WriteMap::with_capacity_from(&self.cg.agent_assignment.client_data);
 
         let diff_rev = self.cg.diff_since_rev(since_frontier);

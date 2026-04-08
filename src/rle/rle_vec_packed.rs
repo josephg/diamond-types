@@ -165,9 +165,9 @@ impl<V: PackedRleItem> RlePackedVec<V> {
     pub fn is_empty(&self) -> bool { self.0.is_empty() }
 
     #[inline]
-    pub fn iter_raw(&self) -> std::slice::Iter<V::Packed> { self.0.iter() }
+    pub fn iter_raw(&self) -> std::slice::Iter<'_, V::Packed> { self.0.iter() }
 
-    pub fn iter_raw_from_idx(&self, idx: usize) -> std::slice::Iter<V::Packed> { self.0[idx..].iter() }
+    pub fn iter_raw_from_idx(&self, idx: usize) -> std::slice::Iter<'_, V::Packed> { self.0[idx..].iter() }
 
     pub fn iter(&self) -> RlePackedVecIter<'_, V> {
         RlePackedVecIter::new(self.iter_raw(), self.1)
@@ -454,7 +454,7 @@ pub struct RlePackedVecRangeIter<'a, V: PackedRleItem, I: SplitableSpanCtx, F: F
 }
 
 impl<V: PackedRleItem + SplitableSpanCtx> RlePackedVec<V> {
-    pub fn iter_range(&self, range: DTRange) -> RlePackedVecRangeIter<V, V, impl Fn(&V::Packed, usize) -> V> where V: SplitableSpan {
+    pub fn iter_range(&self, range: DTRange) -> RlePackedVecRangeIter<'_, V, V, impl Fn(&V::Packed, usize) -> V> where V: SplitableSpan {
         self.iter_range_ctx(range, &())
     }
 
@@ -465,7 +465,7 @@ impl<V: PackedRleItem + SplitableSpanCtx> RlePackedVec<V> {
 
 impl<V: PackedRleItem> RlePackedVec<V> {
     // Yeah these map functions are dirty, but only at compile time. At runtime they should be free.
-    pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V::Packed, usize) -> I>(&self, range: DTRange, map_fn: F) -> RlePackedVecRangeIter<V, I, F>
+    pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V::Packed, usize) -> I>(&self, range: DTRange, map_fn: F) -> RlePackedVecRangeIter<'_, V, I, F>
     {
         self.iter_range_map_ctx(range, &(), map_fn)
     }
