@@ -54,9 +54,6 @@ impl Graph {
         // This is a bit more strict than we technically need, but its fast for short circuit
         // evaluation.
         a == b || (a > b && self.entries.find(a).unwrap().contains(b))
-        // a == b
-        //     || (b == ROOT_TIME && self.txn_shadow_contains(a, ROOT_TIME))
-        //     || (a != ROOT_TIME && a > b && self.0.find(a).unwrap().contains(b))
     }
 
     /// Compare two versions and figure out how they relate.
