@@ -149,6 +149,7 @@ impl From<Range<usize>> for RangeTuple {
 }
 
 pub mod range {
+    use ::smallvec::SmallVec;
     use super::*;
 
     pub fn serialize<S: Serializer>(r: &Range<usize>, s: S) -> Result<S::Ok, S::Error> {
@@ -160,63 +161,66 @@ pub mod range {
         Ok(Range { start, end })
     }
 
-    pub mod opt {
-        use super::*;
-        pub fn serialize<S: Serializer>(v: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
-            v.as_ref().map(|r| RangeTuple(*r)).serialize(s)
-        }
-        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Range<usize>>, D::Error> {
-            Ok(Option::<RangeTuple>::deserialize(d)?.map(|RangeTuple(r)| r))
+    // This is a generic wrapper that lets us serialize / deserialze to / from lists of ranges.
+    // Horrible that this is needed, but eh.
+    pub struct RangeSlice<Seq>(pub Seq);
+
+    impl<'a> From<RangeSlice<&'a [Range<usize>]>> for &'a [Range<usize>] {
+        fn from(value: RangeSlice<&'a [Range<usize>]>) -> Self {
+            value.0
         }
     }
-    // pub mod opt {
-    //     // Option<Range<usize>> variant
-    //     use super::*;
-    //
-    //     pub fn serialize<S: Serializer>(r: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
-    //         r
-    //             .map(|r| (r.start, r.end))
-    //             .serialize(s)
-    //     }
-    //
-    //     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Range<usize>>, D::Error> {
-    //         Ok(
-    //             Option::<(usize, usize)>::deserialize(d)?
-    //                .map(|(start, end)| Range { start, end })
-    //         )
-    //     }
-    // }
+    impl<'a> From<&'a [Range<usize>]> for RangeSlice<&'a [Range<usize>]> {
+        fn from(value: &'a [Range<usize>]) -> Self {
+            RangeSlice(value)
+        }
+    }
+
+    impl<'a, Seq: ?Sized> Serialize for RangeSlice<&'a Seq>
+        where &'a Seq: IntoIterator<Item=&'a Range<usize>>,
+    {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            s.collect_seq(self.0.into_iter().map(|r| RangeTuple(*r)))
+        }
+    }
+
+    // I'm specialising here over Smallvec because smallvec has visitor code.
+    // I could instead impl this for any Extend<...> but that would need a custom visitor.
+    impl<'de, const N: usize> Deserialize<'de> for RangeSlice<SmallVec<Range<usize>, N>> {
+        fn deserialize<D>(d: D) -> Result<Self, D::Error>
+        where D: Deserializer<'de> {
+            smallvec::deserialize(d).map(RangeSlice)
+        }
+    }
+
+    pub mod opt {
+        use super::*;
+
+        pub fn serialize<S: Serializer>(v: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
+            v
+                .as_ref()
+                .map(|r| RangeTuple(*r)).serialize(s)
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Range<usize>>, D::Error> {
+            Ok(
+                Option::<RangeTuple>::deserialize(d)?
+                    .map(|RangeTuple(r)| r)
+            )
+        }
+    }
 
     pub mod smallvec {
         use super::*;
         use ::smallvec::SmallVec;
-
-        pub struct RangeTuples<'a, const N: usize>(pub &'a SmallVec<Range<usize>, N>);
-
-        impl<const N: usize> Serialize for RangeTuples<'_, N> {
-            fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-                s.collect_seq(self.0.iter().map(|r| RangeTuple(*r)))
-            }
-        }
-
-        pub struct RangeTuplesOwned<const N: usize>(pub SmallVec<Range<usize>, N>);
-
-        impl<'de, const N: usize> Deserialize<'de> for RangeTuplesOwned<N> {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                deserialize(deserializer).map(RangeTuplesOwned)
-            }
-        }
-
         pub fn serialize<S, const N: usize>(v: &SmallVec<Range<usize>, N>, s: S) -> Result<S::Ok, S::Error>
         where S: Serializer {
             s.collect_seq(v.iter().map(|r| RangeTuple(*r)))
         }
 
         pub fn deserialize<'de, D, const N: usize>(d: D) -> Result<SmallVec<Range<usize>, N>, D::Error>
-        where D: Deserializer<'de> {
+        where D: Deserializer<'de>
+        {
             Ok(
                 SmallVec::<RangeTuple, N>::deserialize(d)?
                     .into_iter()
@@ -224,55 +228,5 @@ pub mod range {
                     .collect()
             )
         }
-
     }
-
-    // pub mod smallvec {
-    //     // SmallVec<Range<usize>, N> variant
-    //     use serde::ser::SerializeSeq;
-    //     use super::*;
-    //     use ::smallvec::SmallVec;
-    //
-    //     pub fn serialize<S, const N: usize>(
-    //         v: &SmallVec<Range<usize>, N>,
-    //         s: S,
-    //     ) -> Result<S::Ok, S::Error>
-    //     where
-    //         S: Serializer,
-    //     {
-    //         // collect_seq takes an iterator of Serialize items — no temp allocation
-    //         s.collect_seq(v.iter().map(|r| (r.start, r.end)))
-    //     }
-    //
-    //     pub fn deserialize<'de, D, const N: usize>(d: D) -> Result<SmallVec<Range<usize>, N>, D::Error>
-    //     where
-    //         D: Deserializer<'de>,
-    //     {
-    //         struct RangeSeqVisitor<const N: usize>;
-    //
-    //         impl<'de, const N: usize> Visitor<'de> for RangeSeqVisitor<N> {
-    //             type Value = SmallVec<Range<usize>, N>;
-    //
-    //             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    //                 f.write_str("a sequence of [from, to] pairs")
-    //             }
-    //
-    //             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    //             where
-    //                 A: SeqAccess<'de>,
-    //             {
-    //                 let mut out = SmallVec::new();
-    //                 if let Some(n) = seq.size_hint() {
-    //                     out.reserve(n);
-    //                 }
-    //                 while let Some((start, end)) = seq.next_element()? {
-    //                     out.push(Range { start, end });
-    //                 }
-    //                 Ok(out)
-    //             }
-    //         }
-    //
-    //         d.deserialize_seq(RangeSeqVisitor::<N>)
-    //     }
-    // }
 }

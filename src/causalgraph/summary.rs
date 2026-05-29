@@ -42,14 +42,14 @@ mod serde_encoding {
     use crate::causalgraph::summary::{VersionSummary, VersionSummaryFlat, VSEntry};
     use crate::DTRange;
     use smartstring::alias::String as SmartString;
-    use crate::serde_helpers::range::smallvec::{RangeTuples, RangeTuplesOwned};
+    use crate::serde_helpers::range::RangeSlice;
     use crate::serde_helpers::RangeTuple;
 
     impl Serialize for VersionSummary {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
             let mut map = serializer.serialize_map(Some(self.0.len()))?;
             for e in &self.0 {
-                map.serialize_entry(&e.name, &RangeTuples(&e.seq_ranges))?;
+                map.serialize_entry(&e.name, &RangeSlice(&e.seq_ranges))?;
             }
             map.end()
         }
@@ -67,7 +67,7 @@ mod serde_encoding {
         fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error> where A: MapAccess<'de> {
             let mut vs = VersionSummary(Vec::with_capacity(map.size_hint().unwrap_or(0)));
 
-            while let Some((k, v)) = map.next_entry::<SmartString, RangeTuplesOwned<2>>()? {
+            while let Some((k, v)) = map.next_entry::<SmartString, RangeSlice<SmallVec<DTRange, 2>>>()? {
                 vs.0.push(VSEntry {
                     name: k,
                     seq_ranges: v.0,

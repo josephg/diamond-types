@@ -396,7 +396,7 @@ impl Graph {
                     // Bleh.
                     last: *version.last().unwrap_or(&usize::MAX),
                     merged_with: if version.len() > 1 {
-                        SmallVec::from_slice(&version[..version.len() - 1])
+                        SmallVec::from_slice_copy(&version[..version.len() - 1])
                     } else {
                         smallvec![]
                     }
@@ -832,6 +832,7 @@ pub mod test {
     use smallvec::smallvec;
 
     use rle::{AppendRle, MergableSpan};
+    use crate::serde_helpers;
 
     use crate::causalgraph::graph::tools::DiffFlag::*;
     use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
@@ -839,6 +840,7 @@ pub mod test {
     use crate::dtrange::DTRange;
     use crate::frontier::debug_assert_sorted;
     use crate::{Frontier, LV};
+    use crate::serde_helpers::range::RangeSlice;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).
@@ -1009,21 +1011,21 @@ pub mod test {
     fn assert_diff_eq(graph: &Graph, a: &[LV], b: &[LV], expect_a: &[DTRange], expect_b: &[DTRange]) {
         #[cfg(feature="gen_test_data")] {
             #[cfg_attr(feature = "serde", derive(Serialize))]
-            #[derive(Clone)]
+            // #[derive(Clone)]
             struct Test<'a> {
                 hist: Vec<GraphEntrySimple>,
                 a: &'a [LV],
                 b: &'a [LV],
-                expect_a: &'a [DTRange],
-                expect_b: &'a [DTRange],
+                expect_a: RangeSlice<&'a [DTRange]>,
+                expect_b: RangeSlice<&'a [DTRange]>,
             }
 
             let t = Test {
                 hist: graph.iter().collect(),
                 a,
                 b,
-                expect_a,
-                expect_b
+                expect_a: expect_a.into(),
+                expect_b: expect_b.into(),
             };
 
             let _p: Vec<_> = graph.iter().collect();
