@@ -1201,19 +1201,19 @@ mod test {
         assert_eq!(list.to_string(), "abc");
     }
 
-    #[cfg(feature = "gen_test_data")]
-    fn dump_index_stats(bench_name: &str) {
-        let mut bytes = vec![];
-        File::open(format!("benchmark_data/{bench_name}.dt")).unwrap().read_to_end(&mut bytes).unwrap();
-        let o = ListOpLog::load_from(&bytes).unwrap();
-
-        let out_file = format!("idxtrace_{bench_name}.json");
-        let mut iter = o.get_xf_operations_full(&[], o.cg.version.as_ref());
-        while let Some(_) = iter.next() {}
-        let json = iter.tracker.index.actions_to_json();
-        std::fs::write(&out_file, &json).unwrap();
-        println!("wrote index writes to {out_file}");
-    }
+    // #[cfg(feature = "gen_test_data")]
+    // fn dump_index_stats(bench_name: &str) {
+    //     let mut bytes = vec![];
+    //     File::open(format!("benchmark_data/{bench_name}.dt")).unwrap().read_to_end(&mut bytes).unwrap();
+    //     let o = ListOpLog::load_from(&bytes).unwrap();
+    //
+    //     let out_file = format!("idxtrace_{bench_name}.json");
+    //     let mut iter = o.get_xf_operations_full(&[], o.cg.version.as_ref());
+    //     while let Some(_) = iter.next() {}
+    //     let json = iter.tracker.index.actions_to_json();
+    //     std::fs::write(&out_file, &json).unwrap();
+    //     println!("wrote index writes to {out_file}");
+    // }
 
 
     #[test]
@@ -1251,16 +1251,16 @@ mod test {
         // println!("wrote index writes to friendsforever.json");
     }
 
-    // Run me in release mode!
-    // $ cargo test --release --features gen_test_data -- --ignored --nocapture gen_index_traces
-    #[cfg(feature = "gen_test_data")]
-    #[test]
-    #[ignore]
-    fn gen_index_traces() {
-        for name in &["friendsforever", "git-makefile", "node_nodecc", "clownschool"] {
-            dump_index_stats(*name);
-        }
-    }
+    // // Run me in release mode!
+    // // $ cargo test --release --features gen_test_data -- --ignored --nocapture gen_index_traces
+    // #[cfg(feature = "gen_test_data")]
+    // #[test]
+    // #[ignore]
+    // fn gen_index_traces() {
+    //     for name in &["friendsforever", "git-makefile", "node_nodecc", "clownschool"] {
+    //         dump_index_stats(*name);
+    //     }
+    // }
 }
 
 

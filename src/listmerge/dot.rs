@@ -128,7 +128,7 @@ mod test {
         ops.add_delete_at(0, &[1, b], 0..2);
         // dbg!(&ops);
 
-        ops.cg.generate_dot_svg(Path::new("dag.svg"));
+        ops.cg.generate_dot_svg(Path::new("dag.svg"), None);
     }
 
     #[test]
@@ -138,7 +138,7 @@ mod test {
         let contents = fs::read(name).unwrap();
         let oplog = ListOpLog::load_from(&contents).unwrap();
 
-        oplog.cg.generate_dot_svg(Path::new("node_graph.svg"));
+        oplog.cg.generate_dot_svg(Path::new("node_graph.svg"), None);
         println!("Graph written to node_graph.svg");
     }
 }

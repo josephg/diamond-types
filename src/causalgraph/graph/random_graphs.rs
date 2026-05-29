@@ -54,6 +54,6 @@ pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier]
 fn generate_some_graphs() {
     with_random_cgs(123, (1, 10), |(_, i), cg, _frontiers| {
         // dbg!(&cg.graph);
-        cg.generate_dot_svg(Path::new(&format!("graphs/{i}.svg")));
+        cg.generate_dot_svg(Path::new(&format!("graphs/{i}.svg")), None);
     });
 }

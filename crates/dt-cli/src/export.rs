@@ -231,7 +231,7 @@ impl Timestamps {
     fn get_rv_range(&self, mut av_span: RemoteVersionSpan) -> (DateTime<FixedOffset>, usize) {
         assert!(!av_span.is_empty());
 
-        let ts = self.get_raw(av_span.0, av_span.1.take_first().unwrap());
+        let ts = range_take_first(self.get_raw(av_span.0, av_span.1)).unwrap();
         let mut len = 1;
 
         for seq in av_span.1.iter() {

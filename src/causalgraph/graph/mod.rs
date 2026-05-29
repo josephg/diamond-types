@@ -90,7 +90,7 @@ impl Graph {
         // Fast path. The code below is weirdly slow, but most txns just append.
         if let Some(last) = self.entries.0.last_mut() {
             if txn_parents.len() == 1
-                && txn_parents[0] == last.last_time()
+                && txn_parents[0] == last.last_lv()
                 && last.span.can_append(&range)
             {
                 last.span.append(range);
@@ -182,16 +182,16 @@ impl GraphEntryInternal {
     // pub fn local_children_at_time(&self, time: usize) ->
 
     pub fn contains(&self, localtime: usize) -> bool {
-        self.span.contains(localtime)
+        self.span.contains(&localtime)
     }
 
-    pub fn last_time(&self) -> usize {
+    pub fn last_lv(&self) -> usize {
         self.span.last()
     }
 
-    pub fn shadow_contains(&self, time: usize) -> bool {
-        debug_assert!(time <= self.last_time());
-        time >= self.shadow
+    pub fn shadow_contains(&self, lv: usize) -> bool {
+        debug_assert!(lv <= self.last_lv());
+        lv >= self.shadow
     }
 }
 
@@ -205,7 +205,7 @@ impl MergableSpan for GraphEntryInternal {
     fn can_append(&self, other: &Self) -> bool {
         self.span.can_append(&other.span)
             && other.parents.len() == 1
-            && other.parents[0] == self.last_time()
+            && other.parents[0] == self.last_lv()
             && other.shadow == self.shadow
     }
 

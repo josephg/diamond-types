@@ -1,4 +1,5 @@
 use std::fmt::{Debug, Formatter};
+use std::range::Range;
 use rle::{HasLength, MergableSpan, SplitableSpan, SplitableSpanCtx};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::list::operation::ListOpKind::*;
@@ -8,6 +9,8 @@ use crate::rev_range::RangeRev;
 use crate::unicount::chars_to_bytes;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "serde")]
+use crate::serde_helpers;
 
 /// This is an internal structure for passing around information about a change. Notably the content
 /// of the change is not stored here - but is instead stored in a contiguous array in the oplog
@@ -39,6 +42,10 @@ pub(crate) struct ListOpMetrics {
     ///
     /// Note this stores a *byte offset*.
     pub content_pos: Option<DTRange>,
+
+
+    // #[cfg_attr(feature = "serde", serde(with = "serde_helpers::range::opt"))]
+    // pub content_pos: Option<Range<usize>>,
 }
 
 impl ListOpMetrics {

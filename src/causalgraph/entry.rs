@@ -53,7 +53,7 @@ impl CGEntry {
     }
 
     pub fn clear(&mut self) {
-        self.span.seq_range.clear()
+        self.span.seq_range.start = self.span.seq_range.end;
     }
 }
 

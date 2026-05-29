@@ -586,7 +586,7 @@ impl OpLog {
 
         for (crdt_r_name, rv, key, val) in changes.map_ops {
             let lv = self.cg.agent_assignment.remote_to_local_version(rv);
-            if new_range.contains(lv) {
+            if new_range.contains(&lv) {
                 let crdt_id = self.remote_to_crdt_name(crdt_r_name);
                 // dbg!(crdt_id, lv, key, val);
                 self.remote_map_set(crdt_id, lv, key, val);

@@ -25,27 +25,31 @@ pub struct DTRange {
 
 // pub struct Foo(Range<usize>);
 
+// This can't be an impl because of the orphan rule.
+pub fn range_partial_cmp_lv(r: DTRange, lv: LV) -> Ordering {
+    if lv < r.start { Ordering::Less }
+    else if lv >= r.end { Ordering::Greater }
+    else { Ordering::Equal }
+}
+
+pub fn range_take_first(r: &mut DTRange) -> Option<usize> {
+    if r.is_empty() {
+        None
+    } else {
+        let next = r.start;
+        r.start += 1;
+        Some(next)
+    }
+}
+
 impl DTRange {
-    #[inline]
-    pub fn new_from_len(start: usize, len: usize) -> DTRange {
-        DTRange { start, end: start + len }
-    }
-
-    pub fn consume_start(&mut self, amt: usize) {
-        self.start += amt;
-    }
-
     pub fn last(&self) -> usize {
         debug_assert!(self.end > self.start); // last is invalid for empty spans.
         self.end - 1
     }
 
-    pub fn contains(&self, item: usize) -> bool {
-        self.start <= item && item < self.end
-    }
-
-    pub fn is_valid(&self) -> bool {
-        self.start <= self.end
+    pub fn contains(&self, item: &usize) -> bool {
+        self.start <= *item && *item < self.end
     }
 
     pub fn is_empty(&self) -> bool {
@@ -53,41 +57,8 @@ impl DTRange {
         self.start == self.end
     }
 
-    pub fn intersect(&self, other: &Self) -> Option<DTRange> {
-        let result = DTRange {
-            start: self.start.max(other.start),
-            end: self.end.min(other.end),
-        };
-        if result.start <= result.end { Some(result) }
-        else { None }
-    }
-
-    pub fn does_intersect(&self, other: DTRange) -> bool {
-        self.start < other.end && self.end > other.start
-    }
-
-    pub fn partial_cmp_time(&self, time: LV) -> Ordering {
-        if time < self.start { Ordering::Less }
-        else if time >= self.end { Ordering::Greater }
-        else { Ordering::Equal }
-    }
-
-    pub fn take_first(&mut self) -> Option<usize> {
-        if self.is_empty() {
-            None
-        } else {
-            let next = self.start;
-            self.start += 1;
-            Some(next)
-        }
-    }
-
     pub fn iter(&self) -> impl Iterator<Item=usize> {
         LegacyRange::<usize>::from(self)
-    }
-
-    pub fn clear(&mut self) {
-        self.start = self.end;
     }
 }
 
@@ -201,12 +172,6 @@ impl Searchable for DTRange {
     }
 }
 
-// impl EntryWithContent for OrderSpan {
-//     fn content_len(&self) -> usize {
-//         self.len as usize
-//     }
-// }
-
 // This is used for vector clocks. Note if you want order spans keyed by something else, use
 // KVPair<OrderSpan> instead.
 impl HasRleKey for DTRange {
@@ -215,34 +180,7 @@ impl HasRleKey for DTRange {
     }
 }
 
-// impl Iterator for DTRange {
-//     type Item = usize;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if self.is_empty() {
-//             None
-//         } else {
-//             let next = self.start;
-//             self.start += 1;
-//             Some(next)
-//         }
-//     }
-// }
-
 pub(crate) const UNDERWATER_START: usize = usize::MAX / 4;
-
-// pub(crate) fn is_underwater(lv: LV) -> bool {
-//     lv >= UNDERWATER_START
-// }
-
-// #[derive(Debug)]
-// struct RootTime;
-
-// impl Debug for RootTime {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-//         f.write_str("ROOT")
-//     }
-// }
 
 pub(crate) fn debug_lv_raw<F: FnOnce(&dyn Debug) -> R, R>(val: LV, f: F) -> R {
     if val >= UNDERWATER_START { f(&Underwater(val - UNDERWATER_START)) }
@@ -264,7 +202,7 @@ impl Debug for Underwater {
 
 impl Debug for DTRange {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        if !self.is_valid() {
+        if self.start > self.end {
             write!(f, "INVALID: {}..{}", self.start, self.end)?;
         } else if self.is_empty() {
             write!(f, "(EMPTY)")?;

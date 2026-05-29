@@ -30,7 +30,7 @@ use std::mem::take;
 use smallvec::{SmallVec, smallvec};
 use rle::{HasLength, SplitableSpan};
 use crate::causalgraph::graph::Graph;
-use crate::dtrange::DTRange;
+use crate::dtrange::{range_partial_cmp_lv, DTRange};
 use crate::{Frontier, LV};
 
 #[derive(Debug)]
@@ -46,9 +46,9 @@ struct VisitEntry {
 }
 
 
-fn find_entry_idx(input: &SmallVec<VisitEntry, 4>, time: LV) -> Option<usize> {
+fn find_entry_idx(input: &SmallVec<VisitEntry, 4>, lv: LV) -> Option<usize> {
     input.as_slice().binary_search_by(|e| {
-        e.span.partial_cmp_time(time).reverse()
+        range_partial_cmp_lv(e.span, lv).reverse()
     }).ok()
 }
 

@@ -8,6 +8,7 @@ use serde::ser::SerializeStruct;
 use crate::rev_range::RangeRev;
 use smartstring::alias::String as SmartString;
 use crate::dtrange::DTRange;
+use std::range::Range;
 
 pub(crate) trait FlattenSerializable {
     fn struct_name() -> &'static str;
@@ -132,25 +133,44 @@ impl From<DTRange> for DTRangeTuple {
     }
 }
 
+impl From<DTRangeTuple> for Range<usize> {
+    fn from(f: DTRangeTuple) -> Self {
+        Self { start: f.0, end: f.1 }
+    }
+}
+impl From<Range<usize>> for DTRangeTuple {
+    fn from(range: Range<usize>) -> Self {
+        DTRangeTuple(range.start, range.end)
+    }
+}
 
+pub mod range {
+    use super::*;
 
+    pub fn serialize<S: Serializer>(r: &Range<usize>, s: S) -> Result<S::Ok, S::Error> {
+        (r.start, r.end).serialize(s)
+    }
 
-// impl<'de> Deserialize<'de> for TimeSpanRev {
-//     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error> where D: Deserializer<'de> {
-//         struct V;
-//         impl Visitor for V {
-//             type Value = TimeSpanRev;
-//
-//             fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
-//                 formatter.write_str("struct TimeSpanRev")
-//             }
-//
-//             fn visit_seq<A>(self, seq: A) -> Result<Self::Value, serde::de::Error> where A: SeqAccess<'de> {
-//
-//             }
-//         }
-//
-//         const FIELDS: &'static [&'static str] = &["start", "end", "fwd"];
-//         deserializer.deserialize_struct("TimeSpanRev", FIELDS, V)
-//     }
-// }
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Range<usize>, D::Error> {
+        let (start, end) = <(usize, usize)>::deserialize(d)?;
+        Ok(Range { start, end })
+    }
+
+    pub mod opt {
+        // Option<Range<usize, usize>> variant
+        use super::*;
+
+        pub fn serialize<S: Serializer>(r: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
+            r
+                .map(|r| (r.start, r.end))
+                .serialize(s)
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Range<usize>>, D::Error> {
+            Ok(
+                Option::<(usize, usize)>::deserialize(d)?
+                   .map(|(start, end)| Range { start, end })
+            )
+        }
+    }
+}
