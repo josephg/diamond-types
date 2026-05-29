@@ -4,6 +4,8 @@
 use smartstring::alias::String as SmartString;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "serde")]
+use crate::serde_helpers;
 use smallvec::SmallVec;
 use rle::{HasLength, MergableSpan, SplitableSpanHelpers};
 use crate::dtrange::DTRange;
@@ -68,11 +70,15 @@ impl<'a, S> From<(S, usize)> for RemoteVersion<'a> where S: Into<&'a str> {
 /// TODO: Do the same treatment here for seq_range.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersionSpanOwned(pub SmartString, pub DTRange);
+pub struct RemoteVersionSpanOwned(
+    pub SmartString,
+    #[serde(with = "serde_helpers::range")]
+    pub DTRange,
+);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersionSpan<'a>(pub &'a str, pub DTRange);
+pub struct RemoteVersionSpan<'a>(pub &'a str, #[serde(with = "serde_helpers::range")] pub DTRange);
 
 impl<'a> HasLength for RemoteVersionSpan<'a> {
     fn len(&self) -> usize {

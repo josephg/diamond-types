@@ -7,6 +7,7 @@ use rand::{Rng, SeedableRng};
 use crate::causalgraph::graph::Graph;
 use crate::{AgentId, CausalGraph, DTRange, Frontier};
 use crate::list_fuzzer_tools::choose_2;
+use crate::dtrange::RangeHelpers;
 
 pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier])>(seed: u64, iterations: (usize, usize), mut f: F) {
     for outer in 0..iterations.0 {

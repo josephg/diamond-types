@@ -17,7 +17,8 @@ use smallvec::{SmallVec, smallvec};
 
 use rle::AppendRle;
 
-use crate::{CausalGraph, DTRange, Frontier, LV};
+use crate::{CausalGraph, Frontier, LV};
+use crate::dtrange::{DTRange, RangeHelpers};
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
 

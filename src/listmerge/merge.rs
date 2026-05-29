@@ -534,7 +534,7 @@ impl M2Tracker {
 
                 let lv_start = op_pair.0;
 
-                self.index.set_range((lv_start..lv_start + len).into(), Marker::Del(DelRange {
+                self.index.set_range(lv_start..lv_start + len, Marker::Del(DelRange {
                     target: if fwd { target.start } else { target.end },
                     fwd,
                 }).into());

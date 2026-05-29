@@ -8,6 +8,7 @@ use crate::causalgraph::graph::Graph;
 use crate::textinfo::TextInfo;
 use crate::list::op_iter::{OpMetricsWithContent, OpMetricsIter};
 use crate::unicount::count_chars;
+use crate::dtrange::RangeHelpers;
 
 #[derive(Debug, Default)]
 pub(crate) struct SimpleOpLog {

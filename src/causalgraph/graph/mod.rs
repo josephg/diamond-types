@@ -15,9 +15,12 @@ use rle::{HasLength, HasRleKey, MergableSpan, SplitableSpan, SplitableSpanHelper
 use crate::{Frontier, LV};
 
 use crate::rle::RleVec;
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, RangeHelpers};
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "serde")]
+use crate::serde_helpers;
+
 use smallvec::{SmallVec, smallvec};
 use crate::rle::rle_vec_packed::{PackedRleItem, RlePackedVec};
 
@@ -235,6 +238,7 @@ impl HasRleKey for GraphEntryInternal {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GraphEntrySimple {
+    #[cfg_attr(feature = "serde", serde(with = "serde_helpers::range"))]
     pub span: DTRange,
     pub parents: Frontier,
 }

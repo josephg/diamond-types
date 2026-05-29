@@ -1,7 +1,8 @@
 use std::collections::BinaryHeap;
 use crate::causalgraph::graph::{Graph, GraphEntrySimple};
-use crate::{DTRange, Frontier, LV};
+use crate::{Frontier, LV};
 use crate::rle::{RleKeyedAndSplitable, RleVec};
+use crate::dtrange::{DTRange, RangeHelpers};
 
 impl Graph {
     /// This method returns the graph, but split up so parents always refer to the last entry of an
@@ -60,6 +61,7 @@ mod test {
     use crate::causalgraph::graph::GraphEntrySimple;
     use crate::causalgraph::graph::tools::test::fancy_graph;
     use crate::LV;
+    use crate::dtrange::RangeHelpers;
 
     fn check_simple_graph(g: &[GraphEntrySimple]) {
         let mut last = usize::MAX;

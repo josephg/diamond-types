@@ -6,6 +6,7 @@ use crate::*;
 use crate::causalgraph::graph::tools::DiffFlag;
 use crate::causalgraph::graph::tools::DiffFlag::{OnlyA, OnlyB, Shared};
 use crate::frontier::debug_assert_sorted;
+use crate::dtrange::{DTRange, RangeHelpers};
 
 /// A scope is a part of history attached to a specific CRDT
 

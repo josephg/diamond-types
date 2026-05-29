@@ -9,7 +9,7 @@ use smallvec::{SmallVec, smallvec};
 
 use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag;
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, RangeHelpers};
 use crate::LV;
 
 /// A `LocalFrontier` is a set of local Time values which point at the set of changes with no

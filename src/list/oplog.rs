@@ -1,7 +1,7 @@
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersionSpan};
 use crate::causalgraph::agent_span::*;
 use crate::causalgraph::graph::GraphEntrySimple;
-use crate::dtrange::DTRange;
+use crate::dtrange::{range_last, DTRange};
 use crate::list::op_metrics::{ListOpMetrics, ListOperationCtx};
 use crate::list::operation::{ListOpKind, TextOperation};
 use crate::list::{ListBranch, ListOpLog};
@@ -438,7 +438,7 @@ impl ListOpLog {
         if op_range.is_empty() { return 0; }
         else {
             let start_idx = self.operations.find_index(op_range.start).unwrap();
-            let end_idx = self.operations.find_index(op_range.last()).unwrap();
+            let end_idx = self.operations.find_index(range_last(op_range)).unwrap();
 
             end_idx - start_idx + 1
         }

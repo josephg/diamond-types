@@ -41,11 +41,8 @@ pub(crate) struct ListOpMetrics {
     /// essentially a poor man's pointer.
     ///
     /// Note this stores a *byte offset*.
+    #[cfg_attr(feature = "serde", serde(with = "serde_helpers::range::opt"))]
     pub content_pos: Option<DTRange>,
-
-
-    // #[cfg_attr(feature = "serde", serde(with = "serde_helpers::range::opt"))]
-    // pub content_pos: Option<Range<usize>>,
 }
 
 impl ListOpMetrics {

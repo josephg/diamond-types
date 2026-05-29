@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use rle::HasLength;
 use crate::{CausalGraph, LV};
+use crate::dtrange::RangeHelpers;
 
 #[derive(Debug, Clone, Copy)]
 #[allow(unused)]

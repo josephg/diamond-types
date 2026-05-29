@@ -5,7 +5,7 @@ use crate::{AgentId, Frontier, LV};
 use rle::HasLength;
 use crate::list::operation::ListOpKind::{Del, Ins};
 use crate::list::operation::{ListOpKind, TextOperation};
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, RangeHelpers};
 use crate::encoding::parseerror::ParseError;
 use crate::unicount::count_chars;
 

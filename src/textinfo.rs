@@ -1,7 +1,7 @@
 use jumprope::JumpRopeBuf;
 use rle::HasLength;
 use crate::causalgraph::graph::Graph;
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, RangeHelpers};
 use crate::frontier::Frontier;
 use crate::list::ListOpLog;
 use crate::list::op_iter::{OpMetricsWithContent, OpMetricsIter};

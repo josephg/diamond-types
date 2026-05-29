@@ -893,7 +893,8 @@ impl<V: Default + IndexContent> IndexTree<V> {
         self.leaves[leaf_idx.0].next_leaf = new_next_leaf;
     }
 
-    pub fn set_range(&mut self, range: DTRange, data: V) {
+    pub fn set_range<R: Into<DTRange>>(&mut self, range: R, data: V) {
+        let range = range.into();
         // println!("    SET RANGE {:?} = {:?}", range, data);
         if range.is_empty() { return; }
         let cursor = self.cursor_at(range.start);
@@ -1502,20 +1503,20 @@ mod test {
     fn overlapping_sets() {
         let mut tree = IndexTree::new();
 
-        tree.set_range((5..10).into(), X(100));
+        tree.set_range(5..10, X(100));
         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
         // assert_eq!(tree.to_vec(), &[((5..10).into(), Some(A))]);
         // dbg!(&tree.leaves[0]);
-        tree.set_range((5..11).into(), X(200));
+        tree.set_range(5..11, X(200));
         tree.dbg_check_eq(&[RleDRun::new(5..11, X(200))]);
 
-        tree.set_range((5..10).into(), X(100));
+        tree.set_range(5..10, X(100));
         tree.dbg_check_eq(&[
             RleDRun::new(5..10, X(100)),
             RleDRun::new(10..11, X(205)),
         ]);
 
-        tree.set_range((2..50).into(), X(300));
+        tree.set_range(2..50, X(300));
         // dbg!(&tree.leaves);
         tree.dbg_check_eq(&[RleDRun::new(2..50, X(300))]);
 
@@ -1524,8 +1525,8 @@ mod test {
     #[test]
     fn split_values() {
         let mut tree = IndexTree::new();
-        tree.set_range((10..20).into(), X(100));
-        tree.set_range((12..15).into(), X(200));
+        tree.set_range(10..20, X(100));
+        tree.set_range(12..15, X(200));
         tree.dbg_check_eq(&[
             RleDRun::new(10..12, X(100)),
             RleDRun::new(12..15, X(200)),
@@ -1537,14 +1538,14 @@ mod test {
     fn set_inserts_1() {
         let mut tree = IndexTree::new();
 
-        tree.set_range((5..10).into(), X(100));
+        tree.set_range(5..10, X(100));
         tree.dbg_check_eq(&[RleDRun::new(5..10, X(100))]);
 
-        tree.set_range((5..10).into(), X(200));
+        tree.set_range(5..10, X(200));
         tree.dbg_check_eq(&[RleDRun::new(5..10, X(200))]);
 
         // dbg!(&tree);
-        tree.set_range((15..20).into(), X(300));
+        tree.set_range(15..20, X(300));
         // dbg!(tree.iter().collect::<Vec<_>>());
         tree.dbg_check_eq(&[
             RleDRun::new(5..10, X(200)),
@@ -1558,8 +1559,8 @@ mod test {
     #[test]
     fn set_inserts_2() {
         let mut tree = IndexTree::new();
-        tree.set_range((5..10).into(), X(100));
-        tree.set_range((1..5).into(), X(200));
+        tree.set_range(5..10, X(100));
+        tree.set_range(1..5, X(200));
         // dbg!(&tree);
         tree.dbg_check_eq(&[
             RleDRun::new(1..5, X(200)),
@@ -1567,7 +1568,7 @@ mod test {
         ]);
         dbg!(&tree.leaves[0]);
 
-        tree.set_range((3..8).into(), X(300));
+        tree.set_range(3..8, X(300));
         // dbg!(&tree);
         // dbg!(tree.iter().collect::<Vec<_>>());
         tree.dbg_check_eq(&[
@@ -1581,14 +1582,14 @@ mod test {
     fn split_leaf() {
         let mut tree = IndexTree::new();
         // Using 10, 20, ... so they don't merge.
-        tree.set_range(10.into(), X(100));
+        tree.set_range(10..11, X(100));
         tree.dbg_check();
-        tree.set_range(20.into(), X(200));
-        tree.set_range(30.into(), X(100));
-        tree.set_range(40.into(), X(200));
+        tree.set_range(20..21, X(200));
+        tree.set_range(30..31, X(100));
+        tree.set_range(40..41, X(200));
         tree.dbg_check();
         // dbg!(&tree);
-        tree.set_range(50.into(), X(100));
+        tree.set_range(50..51, X(100));
         tree.dbg_check();
 
         // dbg!(&tree);
@@ -1610,7 +1611,7 @@ mod test {
             eprintln!("i: {i}");
             let mut tree = IndexTree::new();
             for base in 0..i {
-                tree.set_range((base*3..base*3+2).into(), X(base + 100));
+                tree.set_range(base*3..base*3+2, X(base + 100));
             }
             // dbg!(tree.iter().collect::<Vec<_>>());
 
@@ -1618,7 +1619,7 @@ mod test {
             // dbg!(ceil);
             // dbg!(&tree);
             tree.dbg_check();
-            tree.set_range((1..ceil).into(), X(99));
+            tree.set_range(1..ceil, X(99));
             // dbg!(tree.iter().collect::<Vec<_>>());
 
             tree.dbg_check_eq(&[
@@ -1716,7 +1717,7 @@ mod test {
             //     dbg!(val, start, len);
             //     dbg!(tree.iter().collect::<Vec<_>>());
             // }
-            tree.set_range((start..start+len).into(), X(val));
+            tree.set_range(start..start+len, X(val));
             // dbg!(&tree);
             tree.dbg_check();
 

@@ -6,6 +6,7 @@ use rle::{HasLength, MergableSpan, Searchable, SplitableSpan, SplitableSpanHelpe
 use crate::AgentId;
 use crate::dtrange::DTRange;
 use crate::rle::rle_vec_packed::PackedRleItem;
+use crate::dtrange::RangeHelpers;
 
 /// (agent_id, seq) pair. The agent ID is an integer which maps to a local string via causal graph.
 pub type AgentVersion = (AgentId, usize);
@@ -31,7 +32,7 @@ impl From<(AgentId, Range<usize>)> for AgentSpan {
 
 impl From<AgentVersion> for AgentSpan {
     fn from((agent, seq): AgentVersion) -> Self {
-        AgentSpan { agent, seq_range: seq.into() }
+        AgentSpan { agent, seq_range: DTRange::from_1(seq) }
     }
 }
 

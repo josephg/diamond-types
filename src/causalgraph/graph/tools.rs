@@ -12,9 +12,11 @@ use rle::{AppendRle, SplitableSpan};
 
 use crate::causalgraph::graph::tools::DiffFlag::*;
 use crate::causalgraph::graph::Graph;
-use crate::dtrange::DTRange;
+use crate::dtrange::{DTRange, RangeHelpers};
 use crate::frontier::{debug_assert_sorted, FrontierRef};
 use crate::{Frontier, LV};
+
+use std::range::Range;
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
@@ -824,7 +826,8 @@ impl Graph {
 #[cfg(test)]
 pub mod test {
     use std::cmp::Ordering;
-    use std::ops::Range;
+    use std::range::Range;
+    use std::ops::Range as LegacyRange;
 
     use smallvec::smallvec;
 
@@ -897,7 +900,7 @@ pub mod test {
         }
     }
 
-    fn assert_conflicting(graph: &Graph, a: &[LV], b: &[LV], expect_spans: &[(Range<usize>, DiffFlag)], expect_common: &[LV]) {
+    fn assert_conflicting(graph: &Graph, a: &[LV], b: &[LV], expect_spans: &[(LegacyRange<usize>, DiffFlag)], expect_common: &[LV]) {
         let expect: Vec<(DTRange, DiffFlag)> = expect_spans
             .iter()
             .rev()
@@ -909,7 +912,7 @@ pub mod test {
 
         let mut common_union: Frontier = expect_common.into();
         for (range, _) in expect_spans {
-            common_union.advance(graph, range.into());
+            common_union.advance(graph, range.clone().into());
         }
         assert_eq!(graph.find_dominators_2(a, b), common_union);
 
@@ -920,7 +923,7 @@ pub mod test {
                 hist: Vec<GraphEntrySimple>,
                 a: &'a [LV],
                 b: &'a [LV],
-                expect_spans: &'a [(Range<usize>, DiffFlag)],
+                expect_spans: &'a [(LegacyRange<usize>, DiffFlag)],
                 expect_common: &'a [LV],
             }
 

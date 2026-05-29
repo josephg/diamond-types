@@ -118,29 +118,33 @@ impl FlattenSerializable for RangeRev {
 }
 
 /// This is used to flatten `[agent, seq]` into a tuple for serde serialization.
-#[derive(Clone, Debug, Eq, PartialEq)]
+// #[derive(Clone, Debug, Eq, PartialEq)]
+// #[derive(Serialize, Deserialize)]
+// pub(crate) struct DTRangeTuple(usize, usize); // from, to.
+//
+// impl From<DTRangeTuple> for DTRange {
+//     fn from(f: DTRangeTuple) -> Self {
+//         Self { start: f.0, end: f.1 }
+//     }
+// }
+// impl From<DTRange> for DTRangeTuple {
+//     fn from(range: DTRange) -> Self {
+//         DTRangeTuple(range.start, range.end)
+//     }
+// }
+
 #[derive(Serialize, Deserialize)]
-pub(crate) struct DTRangeTuple(usize, usize); // from, to.
+pub struct RangeTuple(#[serde(with = "range")] pub Range<usize>);
 
-impl From<DTRangeTuple> for DTRange {
-    fn from(f: DTRangeTuple) -> Self {
-        Self { start: f.0, end: f.1 }
-    }
-}
-impl From<DTRange> for DTRangeTuple {
-    fn from(range: DTRange) -> Self {
-        DTRangeTuple(range.start, range.end)
+impl From<RangeTuple> for Range<usize> {
+    fn from(value: RangeTuple) -> Self {
+        value.0
     }
 }
 
-impl From<DTRangeTuple> for Range<usize> {
-    fn from(f: DTRangeTuple) -> Self {
-        Self { start: f.0, end: f.1 }
-    }
-}
-impl From<Range<usize>> for DTRangeTuple {
-    fn from(range: Range<usize>) -> Self {
-        DTRangeTuple(range.start, range.end)
+impl From<Range<usize>> for RangeTuple {
+    fn from(value: Range<usize>) -> Self {
+        RangeTuple(value)
     }
 }
 
@@ -157,20 +161,118 @@ pub mod range {
     }
 
     pub mod opt {
-        // Option<Range<usize, usize>> variant
         use super::*;
-
-        pub fn serialize<S: Serializer>(r: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
-            r
-                .map(|r| (r.start, r.end))
-                .serialize(s)
+        pub fn serialize<S: Serializer>(v: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
+            v.as_ref().map(|r| RangeTuple(*r)).serialize(s)
         }
-
         pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Range<usize>>, D::Error> {
-            Ok(
-                Option::<(usize, usize)>::deserialize(d)?
-                   .map(|(start, end)| Range { start, end })
-            )
+            Ok(Option::<RangeTuple>::deserialize(d)?.map(|RangeTuple(r)| r))
         }
     }
+    // pub mod opt {
+    //     // Option<Range<usize>> variant
+    //     use super::*;
+    //
+    //     pub fn serialize<S: Serializer>(r: &Option<Range<usize>>, s: S) -> Result<S::Ok, S::Error> {
+    //         r
+    //             .map(|r| (r.start, r.end))
+    //             .serialize(s)
+    //     }
+    //
+    //     pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Range<usize>>, D::Error> {
+    //         Ok(
+    //             Option::<(usize, usize)>::deserialize(d)?
+    //                .map(|(start, end)| Range { start, end })
+    //         )
+    //     }
+    // }
+
+    pub mod smallvec {
+        use super::*;
+        use ::smallvec::SmallVec;
+
+        pub struct RangeTuples<'a, const N: usize>(pub &'a SmallVec<Range<usize>, N>);
+
+        impl<const N: usize> Serialize for RangeTuples<'_, N> {
+            fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+                s.collect_seq(self.0.iter().map(|r| RangeTuple(*r)))
+            }
+        }
+
+        pub struct RangeTuplesOwned<const N: usize>(pub SmallVec<Range<usize>, N>);
+
+        impl<'de, const N: usize> Deserialize<'de> for RangeTuplesOwned<N> {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                deserialize(deserializer).map(RangeTuplesOwned)
+            }
+        }
+
+        pub fn serialize<S, const N: usize>(v: &SmallVec<Range<usize>, N>, s: S) -> Result<S::Ok, S::Error>
+        where S: Serializer {
+            s.collect_seq(v.iter().map(|r| RangeTuple(*r)))
+        }
+
+        pub fn deserialize<'de, D, const N: usize>(d: D) -> Result<SmallVec<Range<usize>, N>, D::Error>
+        where D: Deserializer<'de> {
+            Ok(
+                SmallVec::<RangeTuple, N>::deserialize(d)?
+                    .into_iter()
+                    .map(|RangeTuple(r)| r)
+                    .collect()
+            )
+        }
+
+    }
+
+    // pub mod smallvec {
+    //     // SmallVec<Range<usize>, N> variant
+    //     use serde::ser::SerializeSeq;
+    //     use super::*;
+    //     use ::smallvec::SmallVec;
+    //
+    //     pub fn serialize<S, const N: usize>(
+    //         v: &SmallVec<Range<usize>, N>,
+    //         s: S,
+    //     ) -> Result<S::Ok, S::Error>
+    //     where
+    //         S: Serializer,
+    //     {
+    //         // collect_seq takes an iterator of Serialize items — no temp allocation
+    //         s.collect_seq(v.iter().map(|r| (r.start, r.end)))
+    //     }
+    //
+    //     pub fn deserialize<'de, D, const N: usize>(d: D) -> Result<SmallVec<Range<usize>, N>, D::Error>
+    //     where
+    //         D: Deserializer<'de>,
+    //     {
+    //         struct RangeSeqVisitor<const N: usize>;
+    //
+    //         impl<'de, const N: usize> Visitor<'de> for RangeSeqVisitor<N> {
+    //             type Value = SmallVec<Range<usize>, N>;
+    //
+    //             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    //                 f.write_str("a sequence of [from, to] pairs")
+    //             }
+    //
+    //             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    //             where
+    //                 A: SeqAccess<'de>,
+    //             {
+    //                 let mut out = SmallVec::new();
+    //                 if let Some(n) = seq.size_hint() {
+    //                     out.reserve(n);
+    //                 }
+    //                 while let Some((start, end)) = seq.next_element()? {
+    //                     out.push(Range { start, end });
+    //                 }
+    //                 Ok(out)
+    //             }
+    //         }
+    //
+    //         d.deserialize_seq(RangeSeqVisitor::<N>)
+    //     }
+    // }
 }

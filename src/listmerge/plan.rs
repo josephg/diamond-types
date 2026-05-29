@@ -810,14 +810,15 @@ mod test {
     use crate::causalgraph::graph::{Graph, GraphEntrySimple};
     use crate::causalgraph::graph::random_graphs::with_random_cgs;
     use crate::causalgraph::graph::tools::DiffFlag;
-    use crate::Frontier;
+    use crate::{DTRange, Frontier};
+    use crate::dtrange::RangeHelpers;
 
     #[test]
     fn test_merge1_simple_graph() {
         let graph = Graph::from_simple_items(&[
-            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
-            GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
-            GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: DTRange::from_1(0), parents: Frontier::root() },
+            GraphEntrySimple { span: DTRange::from_1(1), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: DTRange::from_1(2), parents: Frontier::new_1(0) },
         ]);
 
         let g = graph.make_conflict_graph_between(&[], &[1, 2]);
@@ -833,10 +834,10 @@ mod test {
     fn test_simple_graph_2() {
         // Same as above, but this time with an extra entry after the concurrent zone.
         let graph = Graph::from_simple_items(&[
-            GraphEntrySimple { span: 0.into(), parents: Frontier::root() },
-            GraphEntrySimple { span: 1.into(), parents: Frontier::new_1(0) },
-            GraphEntrySimple { span: 2.into(), parents: Frontier::new_1(0) },
-            GraphEntrySimple { span: 3.into(), parents: Frontier::from_sorted(&[1, 2]) },
+            GraphEntrySimple { span: DTRange::from_1(0), parents: Frontier::root() },
+            GraphEntrySimple { span: DTRange::from_1(1), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: DTRange::from_1(2), parents: Frontier::new_1(0) },
+            GraphEntrySimple { span: DTRange::from_1(3), parents: Frontier::from_sorted(&[1, 2]) },
         ]);
 
         let g = graph.make_conflict_graph_between(&[], &[3]);
