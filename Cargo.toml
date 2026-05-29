@@ -10,6 +10,8 @@ exclude = [
 ]
 license = "ISC"
 description = "The world's fastest text CRDT"
+# We need rust 1.96 for std::range::Range.
+rust-version = "1.96.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
