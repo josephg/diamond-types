@@ -10,11 +10,11 @@ use smallvec::{smallvec, SmallVec};
 
 use rle::{AppendRle, SplitableSpan};
 
-use crate::{Frontier, LV};
-use crate::causalgraph::graph::Graph;
 use crate::causalgraph::graph::tools::DiffFlag::*;
+use crate::causalgraph::graph::Graph;
 use crate::dtrange::DTRange;
 use crate::frontier::{debug_assert_sorted, FrontierRef};
+use crate::{Frontier, LV};
 
 // Diff function needs to tag each entry in the queue based on whether its part of a's history or
 // b's history or both, and do so without changing the sort order for the heap.
@@ -272,7 +272,7 @@ impl Graph {
             };
             // dbg!((ord_start, ord_end));
 
-            target.push_reversed_rle(DTRange::new(ord_start, ord_end + 1));
+            target.push_reversed_rle(DTRange::from(ord_start..ord_end + 1));
         };
 
         self.diff_slow_internal(a, b, mark_run);
@@ -830,12 +830,12 @@ pub mod test {
 
     use rle::{AppendRle, MergableSpan};
 
-    use crate::{Frontier, LV};
-    use crate::causalgraph::graph::*;
-    use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
     use crate::causalgraph::graph::tools::DiffFlag::*;
+    use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
+    use crate::causalgraph::graph::*;
     use crate::dtrange::DTRange;
     use crate::frontier::debug_assert_sorted;
+    use crate::{Frontier, LV};
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).

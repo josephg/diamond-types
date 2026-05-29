@@ -1,4 +1,7 @@
-use std::ops::{Deref, DerefMut, Range};
+use std::ops::{Deref, DerefMut};
+
+use std::range::Range;
+use std::ops::Range as LegacyRange;
 
 pub trait HasLength {
     /// The number of child items in the entry. This is indexed with the size used in truncate.
@@ -400,12 +403,78 @@ impl<V> SplitableSpanHelpers for Option<V> where V: SplitableSpan {
 // }
 
 // Implement me for all numeric types!
-impl HasLength for Range<u32> {
+impl HasLength for LegacyRange<u32> {
+    #[inline]
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
+impl HasLength for LegacyRange<u64> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
+
+impl HasLength for LegacyRange<usize> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.end - self.start
+    }
+}
+
+impl HasLength for Range<u32> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
+impl HasLength for Range<u64> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
+
+impl HasLength for Range<usize> {
+    #[inline]
+    fn len(&self) -> usize {
+        self.end - self.start
+    }
+}
+
+
 // impl HasLength for Range<usize> {
 //     fn len(&self) -> usize { (self.end - self.start) as _ }
 // }
+
+impl SplitableSpanHelpers for LegacyRange<u32> {
+    // This is a valid impl because truncate can never be called for single items.
+    fn truncate_h(&mut self, at: usize) -> Self {
+        let old_end = self.end;
+        self.end = self.start + at as u32;
+        Self { start: self.end, end: old_end }
+    }
+}
+impl MergableSpan for LegacyRange<u32> {
+    fn can_append(&self, other: &Self) -> bool {
+        self.end == other.start
+    }
+
+    fn append(&mut self, other: Self) {
+        self.end = other.end;
+    }
+}
+
+impl SplitableSpanHelpers for LegacyRange<usize> {
+    // This is a valid impl because truncate can never be called for single items.
+    fn truncate_h(&mut self, at: usize) -> Self {
+        let old_end = self.end;
+        self.end = self.start + at;
+        Self { start: self.end, end: old_end }
+    }
+}
+impl MergableSpan for LegacyRange<usize> {
+    fn can_append(&self, other: &Self) -> bool {
+        self.end == other.start
+    }
+
+    fn append(&mut self, other: Self) {
+        self.end = other.end;
+    }
+}
 
 impl SplitableSpanHelpers for Range<u32> {
     // This is a valid impl because truncate can never be called for single items.
@@ -425,6 +494,23 @@ impl MergableSpan for Range<u32> {
     }
 }
 
+impl SplitableSpanHelpers for Range<u64> {
+    // This is a valid impl because truncate can never be called for single items.
+    fn truncate_h(&mut self, at: usize) -> Self {
+        let old_end = self.end;
+        self.end = self.start + at as u64;
+        Self { start: self.end, end: old_end }
+    }
+}
+impl MergableSpan for Range<u64> {
+    fn can_append(&self, other: &Self) -> bool {
+        self.end == other.start
+    }
+
+    fn append(&mut self, other: Self) {
+        self.end = other.end;
+    }
+}
 impl SplitableSpanHelpers for Range<usize> {
     // This is a valid impl because truncate can never be called for single items.
     fn truncate_h(&mut self, at: usize) -> Self {

@@ -1,20 +1,20 @@
-use std::ops::Range;
-use rle::{HasLength, SplitableSpan};
-use crate::{AgentId, Frontier, LV};
-use crate::list::{ListBranch, ListOpLog};
-use crate::causalgraph::graph::GraphEntrySimple;
-use crate::list::op_metrics::{ListOperationCtx, ListOpMetrics};
-use crate::list::operation::{TextOperation, ListOpKind};
 use crate::causalgraph::agent_assignment::remote_ids::{RemoteFrontier, RemoteVersionSpan};
-use crate::dtrange::DTRange;
 use crate::causalgraph::agent_span::*;
+use crate::causalgraph::graph::GraphEntrySimple;
+use crate::dtrange::DTRange;
+use crate::list::op_metrics::{ListOpMetrics, ListOperationCtx};
+use crate::list::operation::{ListOpKind, TextOperation};
+use crate::list::{ListBranch, ListOpLog};
 use crate::rev_range::RangeRev;
 use crate::rle::KVPair;
 use crate::unicount::{chars_to_bytes, count_chars};
+use crate::{AgentId, Frontier, LV};
+use rle::{HasLength, SplitableSpan};
+use std::ops::Range;
 
+use crate::rle::rle_vec::RleStats;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
-use crate::rle::rle_vec::RleStats;
 
 impl Default for ListOpLog {
     fn default() -> Self {
@@ -292,7 +292,7 @@ impl ListOpLog {
         // Equivalent to:
         // self.push_at(agent, parents, &[Operation::new_delete(pos, len)])
         let start_time = self.len();
-        let end_time = start_time + loc.len();
+        let end_time = start_time + HasLength::len(&loc);
 
         self.push_op_internal(start_time, loc.into(), ListOpKind::Del, None);
         self.cg.assign_span(agent, parents, DTRange { start: start_time, end: end_time });

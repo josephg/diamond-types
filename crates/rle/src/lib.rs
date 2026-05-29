@@ -3,7 +3,8 @@ use std::fmt::Debug;
 pub use append_rle::AppendRle;
 pub use splitable_span::*;
 pub use merge_iter::*;
-use std::ops::Range;
+use std::range::Range;
+use std::ops::Range as LegacyRange;
 
 mod splitable_span;
 mod merge_iter;
@@ -20,15 +21,11 @@ pub use rlerun::{RleRun, RleDRun};
 pub trait Searchable {
     type Item: Copy + Debug;
 
-    // This is strictly unnecessary given truncate(), but it makes some code cleaner.
-    // fn truncate_keeping_right(&mut self, at: usize) -> Self;
-
     /// Checks if the entry contains the specified item. If it does, returns the offset into the
     /// item.
     fn get_offset(&self, loc: Self::Item) -> Option<usize>;
 
-    // I'd use Index for this but the index trait returns a reference.
-    // fn at_offset(&self, offset: usize) -> Self::Item;
+    // I'd use std Index for this but the index trait returns a reference.
     fn at_offset(&self, offset: usize) -> Self::Item;
 }
 
@@ -51,6 +48,34 @@ impl HasRleKey for Range<usize> {
 impl HasRleKey for Range<u32> {
     fn rle_key(&self) -> usize {
         self.start as _
+    }
+}
+
+impl HasRleKey for LegacyRange<usize> {
+    fn rle_key(&self) -> usize {
+        self.start
+    }
+}
+
+impl HasRleKey for LegacyRange<u32> {
+    fn rle_key(&self) -> usize {
+        self.start as _
+    }
+}
+
+impl Searchable for Range<usize> {
+    type Item = usize; // LV
+
+    fn get_offset(&self, loc: Self::Item) -> Option<usize> {
+        if loc >= self.start && loc < self.end {
+            Some(loc - self.start)
+        } else {
+            None
+        }
+    }
+
+    fn at_offset(&self, offset: usize) -> Self::Item {
+        self.start + offset
     }
 }
 

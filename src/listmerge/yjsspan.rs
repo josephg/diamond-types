@@ -123,7 +123,7 @@ impl CRDTSpan {
 
     pub fn new_underwater() -> Self {
         CRDTSpan {
-            id: DTRange::new(UNDERWATER_START, UNDERWATER_START * 2 - 1),
+            id: DTRange::from(UNDERWATER_START..UNDERWATER_START * 2 - 1),
             origin_left: usize::MAX,
             origin_right: usize::MAX,
             current_state: INSERTED, // Underwater items are never in the NotInsertedYet state.

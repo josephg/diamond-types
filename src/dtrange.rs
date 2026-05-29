@@ -1,9 +1,11 @@
 use std::cmp::Ordering;
 use std::collections::Bound;
 use std::fmt::{Debug, DebugStruct, Formatter};
+use std::ops::RangeBounds;
 use rle::{HasLength, HasRleKey, MergableSpan, Searchable, SplitableSpanHelpers};
+// use std::range::Range;
+use std::ops::Range as LegacyRange;
 
-use std::ops::{Range, RangeBounds};
 use crate::LV;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -21,12 +23,9 @@ pub struct DTRange {
     pub end: usize
 }
 
-impl DTRange {
-    #[inline]
-    pub fn new(start: usize, end: usize) -> DTRange {
-        DTRange { start, end }
-    }
+// pub struct Foo(Range<usize>);
 
+impl DTRange {
     #[inline]
     pub fn new_from_len(start: usize, len: usize) -> DTRange {
         DTRange { start, end: start + len }
@@ -34,10 +33,6 @@ impl DTRange {
 
     pub fn consume_start(&mut self, amt: usize) {
         self.start += amt;
-    }
-
-    pub fn end(&self) -> usize {
-        self.end
     }
 
     pub fn last(&self) -> usize {
@@ -88,7 +83,7 @@ impl DTRange {
     }
 
     pub fn iter(&self) -> impl Iterator<Item=usize> {
-        Range::<usize>::from(self)
+        LegacyRange::<usize>::from(self)
     }
 
     pub fn clear(&mut self) {
@@ -102,8 +97,8 @@ impl From<usize> for DTRange {
     }
 }
 
-impl From<Range<usize>> for DTRange {
-    fn from(range: Range<usize>) -> Self {
+impl From<LegacyRange<usize>> for DTRange {
+    fn from(range: LegacyRange<usize>) -> Self {
         DTRange {
             start: range.start,
             end: range.end,
@@ -111,8 +106,8 @@ impl From<Range<usize>> for DTRange {
     }
 }
 
-impl From<&Range<usize>> for DTRange {
-    fn from(range: &Range<usize>) -> Self {
+impl From<&LegacyRange<usize>> for DTRange {
+    fn from(range: &LegacyRange<usize>) -> Self {
         DTRange {
             start: range.start,
             end: range.end,
@@ -120,12 +115,12 @@ impl From<&Range<usize>> for DTRange {
     }
 }
 
-impl From<DTRange> for Range<usize> {
+impl From<DTRange> for LegacyRange<usize> {
     fn from(span: DTRange) -> Self {
         span.start..span.end
     }
 }
-impl From<&DTRange> for Range<usize> {
+impl From<&DTRange> for LegacyRange<usize> {
     fn from(span: &DTRange) -> Self {
         span.start..span.end
     }
@@ -191,10 +186,9 @@ impl MergableSpan for DTRange {
 }
 
 impl Searchable for DTRange {
-    type Item = usize; // Time
+    type Item = usize; // LV
 
     fn get_offset(&self, loc: Self::Item) -> Option<usize> {
-        // debug_assert!(loc < self.len());
         if loc >= self.start && loc < self.end {
             Some(loc - self.start)
         } else {
@@ -296,6 +290,6 @@ mod tests {
 
     #[test]
     fn splitable_timespan() {
-        test_splitable_methods_valid(DTRange::new(10, 20));
+        test_splitable_methods_valid(DTRange::from(10..20));
     }
 }

@@ -75,7 +75,7 @@ impl<V: HasLength> HasLength for KVPair<V> {
 
 impl<V: HasLength> KVPair<V> {
     pub fn range(&self) -> DTRange {
-        DTRange::new(self.0, self.0 + self.len())
+        DTRange::from(self.0..self.0 + self.len())
     }
 }
 
