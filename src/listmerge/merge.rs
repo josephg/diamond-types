@@ -811,6 +811,12 @@ impl<'a> Iterator for TransformedSimpleOpsIter<'a> {
                 if first.0 < range.start {
                     first.truncate_keeping_right_ctx(range.start - first.0, self.inner.op_ctx);
                 }
+                // The op run can extend past the FF range, when it rle-merged
+                // with ops that still need real merging. Emitting those here
+                // too would emit them twice.
+                if first.end() > range.end {
+                    first.truncate_ctx(range.end - first.0, self.inner.op_ctx);
+                }
 
                 self.ff_iter = Some((self.inner.ops.0[start_idx+1..].iter(), range.end));
 
@@ -993,6 +999,47 @@ mod test {
         list.merge_raw(&mut result, &[1], &[2]);
 
         assert_eq!(result, "aaa");
+    }
+
+    #[test]
+    fn test_ff_overrun() {
+        let mut oplog = ListOpLog::new();
+
+        // We have two agents, A and B
+        let a = oplog.get_or_create_agent_id("a");
+        let b = oplog.get_or_create_agent_id("b");
+
+        // Agent A inserts twice:
+        oplog.add_insert_at(a, &[], 0, "hh");   // lv 0..2
+        oplog.add_insert_at(a, &[1], 2, "ddd"); // lv 2..5
+
+        // Those insertions get joined into a single run: "hh" + "ddd" = "hhddd".
+
+        // Concurrently, agent B deletes an "h".
+        // B branched before "ddd" existed, where only "hh" was there.
+
+        oplog.add_delete_at(b, &[1], 0..1);     // lv 5..6, concurrent
+
+        // This will place the fast-forward merge plan's boundary in the
+        // middle of a run.  It needs to *not* produce that whole run, or
+        // "ddd" will appear twice.
+
+        // We expect it to look like this:
+        let expected = oplog.checkout_tip().content().to_string();
+
+        // ...when we replay the transformed ops in sequence, as xfSince consumers do:
+        let mut s = String::new();
+        for (_, op) in oplog.iter_xf_operations() {
+            let Some(op) = op else { continue };
+            let start = op.loc.span.start;
+            match op.kind {
+                ListOpKind::Ins => s.insert_str(start, op.content.as_ref().unwrap()),
+                ListOpKind::Del => s.replace_range(start..op.loc.span.end, ""),
+            }
+        }
+
+        // Let's see if they match!
+        assert_eq!(s, expected);
     }
 
     #[test]
