@@ -445,15 +445,25 @@ impl Default for DecodeOptions {
 
 impl ListOpLog {
     pub fn load_from(data: &[u8]) -> Result<Self, ParseError> {
-        let mut oplog = Self::new();
-        oplog.decode_internal(data, DecodeOptions::default())?;
-        Ok(oplog)
+        Self::load_from_opts(data, DecodeOptions::default())
     }
 
     pub fn load_from_opts(data: &[u8], opts: DecodeOptions) -> Result<Self, ParseError> {
         let mut oplog = Self::new();
-        oplog.decode_internal(data, opts)?;
-        Ok(oplog)
+        // decode_internal assumes the encoded bytes are internally consistent, and some of the
+        // RLE / index lookups it does along the way panic instead of erroring out on corrupted
+        // input. Catch that here so a single flipped byte returns a ParseError like the docs
+        // promise, rather than taking down the caller.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            oplog.decode_internal(data, opts)
+        }));
+        match result {
+            Ok(res) => {
+                res?;
+                Ok(oplog)
+            }
+            Err(_) => Err(ParseError::GenericInvalidData),
+        }
     }
 
     /// Add all operations from a binary chunk into this document.
