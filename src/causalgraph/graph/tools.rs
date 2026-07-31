@@ -832,7 +832,6 @@ pub mod test {
     use smallvec::smallvec;
 
     use rle::{AppendRle, MergableSpan};
-    use crate::serde_helpers;
 
     use crate::causalgraph::graph::tools::DiffFlag::*;
     use crate::causalgraph::graph::tools::{DiffFlag, DiffResult};
@@ -840,7 +839,7 @@ pub mod test {
     use crate::dtrange::DTRange;
     use crate::frontier::debug_assert_sorted;
     use crate::{Frontier, LV};
-    use crate::serde_helpers::range::RangeSlice;
+    // use crate::serde_helpers::range::RangeSlice;
 
     // The conflict finder can also be used as an overly complicated diff function. Check this works
     // (This is mostly so I can reuse a bunch of tests).

@@ -72,13 +72,17 @@ impl<'a, S> From<(S, usize)> for RemoteVersion<'a> where S: Into<&'a str> {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct RemoteVersionSpanOwned(
     pub SmartString,
-    #[serde(with = "serde_helpers::range")]
+    #[cfg_attr(feature = "serde", serde(with = "serde_helpers::range"))]
     pub DTRange,
 );
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct RemoteVersionSpan<'a>(pub &'a str, #[serde(with = "serde_helpers::range")] pub DTRange);
+pub struct RemoteVersionSpan<'a>(
+    pub &'a str,
+    #[cfg_attr(feature = "serde", serde(with = "serde_helpers::range"))]
+    pub DTRange
+);
 
 impl<'a> HasLength for RemoteVersionSpan<'a> {
     fn len(&self) -> usize {
