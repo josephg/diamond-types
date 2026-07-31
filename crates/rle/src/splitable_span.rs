@@ -55,6 +55,13 @@ impl<T: SplitableSpanHelpers> SplitableSpanCtx for T {
     }
 }
 
+/// Same as SplitableSpan, but all functions take a reference to a context object for truncation.
+/// This is important for text editing, where we need to reference the inserted string itself to
+/// split operations, since we may need to recompute UTF8 byte offsets.
+///
+/// When you want to implement SplitableSpan with no context, implement SplitableSpanHelpers instead.
+/// This trait is implemented for anything which implements SplitableSpanHelpers. If Ctx = (), it
+/// implies SplitableSpan.
 pub trait SplitableSpanCtx: Clone {
     type Ctx: ?Sized;
 

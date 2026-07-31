@@ -598,7 +598,8 @@ pub(crate) struct TransformedOpsIterRaw<'a> {
     tracker: M2Tracker,
     plan: M1Plan,
 
-    /// Where are we up to in the plan?
+    /// Where are we up to in the plan? Better to store an iterator into plan, but it would be a
+    /// self reference.
     plan_idx: usize,
 
     /// We're in output mode (and we've already built the starting state)
@@ -707,8 +708,9 @@ impl<'a> Iterator for TransformedOpsIterRaw<'a> {
             } else { self.op_iter = None; }
         }
 
-        while self.plan_idx < self.plan.0.len() {
-            let action = &self.plan.0[self.plan_idx];
+        // Poor man's unwrapped for() loop. Using .get() here avoids an extraneous bounds check &
+        // panic. (Though the LLVM optimizer can optimize it away.)
+        while let Some(action) = self.plan.0.get(self.plan_idx) {
             self.plan_idx += 1;
 
             match action {
@@ -749,7 +751,7 @@ impl<'a> Iterator for TransformedOpsIterRaw<'a> {
         }
 
         // self.close_tracker();
-        return None;
+        None
     }
 }
 
@@ -766,6 +768,12 @@ pub(crate) enum TransformedSimpleOp {
 /// TODO: Name me.
 pub(crate) struct TransformedSimpleOpsIter<'a> {
     inner: TransformedOpsIterRaw<'a>,
+
+    // Each call to next() can only yield one item from ListOpMetrics, so when we're fast-forwarding
+    // through a big range, we need to cache an iterator to the remaining set of items.
+    //
+    // This could be replaced with RleVecRangeIter via self.inner.ops.iter_range_ctx(), but that
+    // iterator is much bigger (40 bytes vs 24). Might still be worth it to avoid duplicating code?
     ff_iter: Option<(std::slice::Iter<'a, KVPair<ListOpMetrics>>, usize)>,
 }
 
@@ -799,6 +807,8 @@ impl<'a> Iterator for TransformedSimpleOpsIter<'a> {
         match self.inner.next() {
             None => None,
             Some(TransformedResultRaw::Apply { xf_pos, mut op }) => {
+                // The operation is yielded in the original position. We can mutate in-place because
+                // this is being passed straight through to the caller.
                 op.1.transpose_to(xf_pos);
                 Some(Apply(op))
             },
@@ -847,6 +857,8 @@ impl TextInfo {
         TransformedOpsIterRaw::new(subgraph, aa, &self.ctx, &self.ops, from, merging)
     }
 
+    // I'd love to have this function just return (TransformedOpsIterRaw, Frontier), but we can't because of
+    // horrible lifetime problems.
     pub(crate) fn with_xf_iter<F: FnOnce(TransformedOpsIterRaw, Frontier) -> R, R>(&self, cg: &CausalGraph, from: &[LV], merge_frontier: &[LV], f: F) -> R {
         // This is a big dirty mess for now, but it should be correct at least.
         let conflict = cg.graph.find_conflicting_simple(from, merge_frontier);
@@ -1229,6 +1241,43 @@ mod test {
     //     println!("wrote index writes to {out_file}");
     // }
 
+    #[test]
+    fn ff_simple_iter_overrun() {
+        // Regression. See https://github.com/josephg/diamond-types/pull/49
+        let mut oplog = ListOpLog::new();
+
+        let a = oplog.get_or_create_agent_id("a");
+        let b = oplog.get_or_create_agent_id("b");
+
+        // Agent A inserts twice:
+        oplog.add_insert_at(a, &[], 0, "ab");   // lv 0..6
+
+        // Agent b deletes 'a' before 'b' was typed.
+        oplog.add_delete_at(b, &[0], 0..1);
+
+        // This will place the fast-forward merge plan's boundary in the
+        // middle of a run.  It needs to *not* produce that whole run, or
+        // "ddd" will appear twice.
+
+        // A proper checkout works correctly.
+        let expected = oplog.checkout_tip().content().to_string();
+        assert_eq!(expected, "b");
+
+        // ...when we replay the transformed ops in sequence, as xfSince consumers do:
+        let mut s = String::new();
+        for (lv, op) in oplog.iter_xf_operations() {
+            let Some(op) = op else { continue };
+            dbg!((lv, &op));
+            let start = op.loc.span.start;
+            match op.kind {
+                ListOpKind::Ins => s.insert_str(start, op.content.as_ref().unwrap()),
+                ListOpKind::Del => s.replace_range(start..op.loc.span.end, ""),
+            }
+        }
+
+        // Let's see if they match!
+        assert_eq!(s, "b");
+    }
 
     #[test]
     #[ignore]
@@ -1275,42 +1324,4 @@ mod test {
     //         dump_index_stats(*name);
     //     }
     // }
-
-    #[test]
-    fn test_ff_overrun() {
-        // Regression. See https://github.com/josephg/diamond-types/pull/49
-        let mut oplog = ListOpLog::new();
-
-        let a = oplog.get_or_create_agent_id("a");
-        let b = oplog.get_or_create_agent_id("b");
-
-        // Agent A inserts twice:
-        oplog.add_insert_at(a, &[], 0, "ab");   // lv 0..6
-
-        // Agent b deletes 'a' before 'b' was typed.
-        oplog.add_delete_at(b, &[0], 0..1);
-
-        // This will place the fast-forward merge plan's boundary in the
-        // middle of a run.  It needs to *not* produce that whole run, or
-        // "ddd" will appear twice.
-
-        // A proper checkout works correctly.
-        let expected = oplog.checkout_tip().content().to_string();
-        assert_eq!(expected, "b");
-
-        // ...when we replay the transformed ops in sequence, as xfSince consumers do:
-        let mut s = String::new();
-        for (lv, op) in oplog.iter_xf_operations() {
-            let Some(op) = op else { continue };
-            dbg!((lv, &op));
-            let start = op.loc.span.start;
-            match op.kind {
-                ListOpKind::Ins => s.insert_str(start, op.content.as_ref().unwrap()),
-                ListOpKind::Del => s.replace_range(start..op.loc.span.end, ""),
-            }
-        }
-
-        // Let's see if they match!
-        assert_eq!(s, "b");
-    }
 }

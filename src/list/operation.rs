@@ -42,7 +42,8 @@ impl Display for ListOpKind {
 /// So the span here is interesting. For inserts, this is the range of positions the inserted
 /// characters *will have* after they've been inserted.
 ///
-/// For deletes this is the range of characters in the document *being deleted*.
+/// For deletes this is the range of characters in the document *being deleted*. Note this is
+/// specified as a unicode codepoint range, not UTF8 byte offsets.
 ///
 /// The `rev` field specifies if the items being inserted or deleted are doing so in reverse order.
 /// For inserts "normal" mode means appending, reverse mode means prepending.

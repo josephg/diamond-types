@@ -546,14 +546,14 @@ impl<V: HasLength + HasRleKey + SplitableSpanCtx + MergableSpan> RleVec<V> {
         self.iter_range_ctx(range, &())
     }
 
-
     pub fn iter_range_ctx<'a>(&'a self, range: DTRange, ctx: &'a V::Ctx) -> RleVecRangeIter<'a, V, V, impl Fn(&V) -> V> {
         self.iter_range_map_ctx(range, ctx, id_clone)
     }
 }
 
 impl<V: HasLength + HasRleKey + MergableSpan> RleVec<V> {
-    // Yeah these map functions are dirty, but only at compile time. At runtime they should be free.
+    // Yeah these map functions are dirty, but only at compile time. They're free at runtime because
+    // of monomorphization.
     pub fn iter_range_map<I: SplitableSpan + HasLength, F: Fn(&V) -> I>(&self, range: DTRange, map_fn: F) -> RleVecRangeIter<'_, V, I, F> {
         self.iter_range_map_ctx(range, &(), map_fn)
     }
