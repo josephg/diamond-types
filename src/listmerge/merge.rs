@@ -1261,95 +1261,42 @@ mod test {
     //         dump_index_stats(*name);
     //     }
     // }
+
+    #[test]
+    fn test_ff_overrun() {
+        // Regression. See https://github.com/josephg/diamond-types/pull/49
+        let mut oplog = ListOpLog::new();
+
+        let a = oplog.get_or_create_agent_id("a");
+        let b = oplog.get_or_create_agent_id("b");
+
+        // Agent A inserts twice:
+        oplog.add_insert_at(a, &[], 0, "ab");   // lv 0..6
+
+        // Agent b deletes 'a' before 'b' was typed.
+        oplog.add_delete_at(b, &[0], 0..1);
+
+        // This will place the fast-forward merge plan's boundary in the
+        // middle of a run.  It needs to *not* produce that whole run, or
+        // "ddd" will appear twice.
+
+        // A proper checkout works correctly.
+        let expected = oplog.checkout_tip().content().to_string();
+        assert_eq!(expected, "b");
+
+        // ...when we replay the transformed ops in sequence, as xfSince consumers do:
+        let mut s = String::new();
+        for (lv, op) in oplog.iter_xf_operations() {
+            let Some(op) = op else { continue };
+            dbg!((lv, &op));
+            let start = op.loc.span.start;
+            match op.kind {
+                ListOpKind::Ins => s.insert_str(start, op.content.as_ref().unwrap()),
+                ListOpKind::Del => s.replace_range(start..op.loc.span.end, ""),
+            }
+        }
+
+        // Let's see if they match!
+        assert_eq!(s, "b");
+    }
 }
-
-
-
-
-
-
-// #[derive(Debug)]
-// struct FlattenedOps {
-//     common_ancestor: Frontier,
-//     conflict_ops: SmallVec<[DTRange; 4]>,
-//     new_ops: SmallVec<[DTRange; 4]>,
-//     from_frontier: Frontier,
-//     merge_frontier: Frontier,
-// }
-//
-// impl FlattenedOps {
-//     fn new_from_subgraph(cg: &CausalGraph, from_frontier: &[LV], merge_frontier: &[LV], ops: &RleVec<KVPair<ListOpMetrics>>) -> Result<(Graph, Self), Frontier> {
-//         // This is a big dirty mess for now, but it should be correct at least.
-//         let global_conflict_zone = cg.graph.find_conflicting_simple(from_frontier, merge_frontier);
-//         let earliest = global_conflict_zone.common_ancestor.0.get(0).copied().unwrap_or(0);
-//
-//         let final_frontier_global = cg.graph.find_dominators_2(from_frontier, merge_frontier);
-//         // if final_frontier.as_ref() == from { return final_frontier; } // Nothing to do!
-//
-//         // We actually only need the ops in intersection b
-//         let op_spans = ops.iter().map(|e| e.span())
-//             .rev()
-//             // .merge_spans_rev()
-//             .take_while(|r| r.end > earliest);
-//         // let iter = rle_intersect_rev_first(op_spans, global_conflict_zone.rev_spans.iter().copied());
-//         let iter = op_spans;
-//
-//         let (subgraph, _ff) = cg.graph.subgraph_raw(iter.clone(), final_frontier_global.as_ref());
-//
-//         // println!("{}", subgraph.0.0.len());
-//         // subgraph.dbg_check_subgraph(true); // For debugging.
-//         // dbg!(&subgraph, ff.as_ref());
-//
-//         let from_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), from_frontier);
-//         let merge_frontier = cg.graph.project_onto_subgraph_raw(iter.clone(), merge_frontier);
-//
-//         let mut new_ops: SmallVec<[DTRange; 4]> = smallvec![];
-//         let mut conflict_ops: SmallVec<[DTRange; 4]> = smallvec![];
-//
-//         // Process the conflicting edits again, this time just scanning the subgraph.
-//         let common_ancestor = subgraph.find_conflicting(from_frontier.as_ref(), merge_frontier.as_ref(), |span, flag| {
-//             // Note we'll be visiting these operations in reverse order.
-//             let target = match flag {
-//                 DiffFlag::OnlyB => &mut new_ops,
-//                 _ => &mut conflict_ops
-//             };
-//             target.push_reversed_rle(span);
-//         });
-//         // dbg!(&common_ancestor);
-//
-//         let final_frontier_subgraph = subgraph.find_dominators_2(from_frontier.as_ref(), merge_frontier.as_ref());
-//         if final_frontier_subgraph == from_frontier { return Result::Err(final_frontier_global); } // Nothing to do! Just an optimization... Not sure if its necessary.
-//
-//         // dbg!(ops.iter().map(|e| e.span())
-//         //     .rev()
-//         //     .take_while(|r| r.end > earliest).collect::<Vec<_>>());
-//         // dbg!(&subgraph);
-//         // dbg!(&new_ops);
-//
-//         Result::Ok((subgraph, Self {
-//             from_frontier,
-//             merge_frontier,
-//             common_ancestor,
-//             conflict_ops,
-//             new_ops,
-//         }))
-//     }
-//
-//     fn iter<'a>(self, subgraph: &'a Graph, aa: &'a AgentAssignment, op_ctx: &'a ListOperationCtx, ops: &'a RleVec<KVPair<ListOpMetrics>>) -> TransformedOpsIter<'a> {
-//         TransformedOpsIter {
-//             subgraph,
-//             aa,
-//             op_ctx,
-//             ops,
-//             op_iter: None,
-//             ff_mode: true,
-//             did_ff: false,
-//             merge_frontier: self.merge_frontier,
-//             common_ancestor: self.common_ancestor,
-//             conflict_ops: self.conflict_ops,
-//             new_ops: self.new_ops,
-//             next_frontier: self.from_frontier,
-//             phase2: None,
-//         }
-//     }
-// }
