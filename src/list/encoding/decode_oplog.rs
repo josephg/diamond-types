@@ -104,20 +104,19 @@ impl<'a> BufReader<'a> {
                     // The parents list is empty (ie, our parent is ROOT).
                     break;
                 } else {
-                    let agent = agent_map[n - 1].0;
+                    let agent = agent_map.get(n - 1).ok_or(ParseError::InvalidLength)?.0;
+
+                    let c = oplog.cg.agent_assignment.client_data.get(agent as usize).ok_or(ParseError::InvalidLength)?;
                     let seq = self.next_usize()?;
-                    // dbg!((agent, seq));
-                    if let Some(c) = oplog.cg.agent_assignment.client_data.get(agent as usize) {
-                        // Adding UNDERWATER_START for foreign parents in a horrible hack.
-                        // I'm so sorry. This gets pulled back out in history_entry_map_and_truncate
-                        c.try_seq_to_lv(seq).ok_or(ParseError::InvalidLength)?
-                    } else {
-                        return Err(ParseError::InvalidLength);
-                    }
+                    c.try_seq_to_lv(seq).ok_or(ParseError::InvalidLength)?
                 }
             } else {
                 // Local parents (parents inside this chunk of data) are stored using their
                 // local time offset.
+                if n == 0 {
+                    // Parents must be in the past.
+                    return Err(ParseError::InvalidLength);
+                }
                 next_time - n
             };
 

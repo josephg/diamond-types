@@ -388,3 +388,30 @@ fn compat_simple_doc() {
         assert_eq!(ListOpLog::load_from(bytes2_compressed_full).unwrap(), doc.oplog);
     }
 }
+
+#[test]
+fn corrupted_bytes_return_parse_error_instead_of_panicking() {
+    // load_from is documented to return a Result, but some corrupted inputs used to trip an
+    // internal unwrap() deep in the RLE decoding instead of surfacing a ParseError.
+    let doc = simple_doc();
+    let good_bytes = doc.oplog.encode(&EncodeOptions::full().store_deleted_content(true));
+
+    let mut found_an_error_case = false;
+    for i in 0..good_bytes.len() {
+        for &b in &[0u8, 2, 0xff] {
+            let mut corrupted = good_bytes.clone();
+            corrupted.splice(i..i, [b]);
+
+            let result = std::panic::catch_unwind(|| ListOpLog::load_from(&corrupted));
+            assert!(result.is_ok(), "load_from panicked on corrupted bytes at position {i} with inserted byte {b}");
+
+            if let Ok(Err(_)) = result {
+                found_an_error_case = true;
+            }
+        }
+    }
+
+    // Sanity check that this actually exercises some malformed input (rather than every
+    // mutation happening to still decode successfully).
+    assert!(found_an_error_case);
+}

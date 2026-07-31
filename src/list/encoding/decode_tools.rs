@@ -62,7 +62,7 @@ impl<'a> BufReader<'a> {
     }
 
     pub(super) fn next_u32_le(&mut self) -> Result<u32, ParseError> {
-        // self.check_has_bytes(size_of::<u32>())?;
+        self.check_has_bytes(4)?;
         let val = u32::from_le_bytes(self.0[0..4].try_into().map_err(|_| ParseError::UnexpectedEOF)?);
         self.consume(size_of::<u32>());
         Ok(val)
