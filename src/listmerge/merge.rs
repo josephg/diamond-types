@@ -30,7 +30,7 @@ use crate::listmerge::yjsspan::{CRDTSpan, INSERTED, NOT_INSERTED_YET};
 use crate::ost::{IndexTree, LeafIdx, LenPair, LenUpdate};
 use crate::ost::content_tree::{Content, ContentCursor, ContentTree};
 use crate::rev_range::RangeRev;
-use crate::rle::{KVPair, RleSpanHelpers, RleVec};
+use crate::rle::{KVPair, RleKeyedAndSplitable, RleSpanHelpers, RleVec};
 use crate::textinfo::TextInfo;
 use crate::unicount::consume_chars;
 
@@ -785,8 +785,7 @@ impl<'a> Iterator for TransformedSimpleOpsIter<'a> {
             if let Some(item) = ff_iter.next() {
                 let mut item = item.clone();
                 if item.0 < *end {
-                    let item_end = item.end();
-                    if item_end > *end {
+                    if item.end() > *end {
                         item.truncate_ctx(*end - item.0, self.inner.op_ctx);
                     }
                     return Some(Apply(item));
@@ -807,14 +806,29 @@ impl<'a> Iterator for TransformedSimpleOpsIter<'a> {
                 debug_assert!(!range.is_empty());
 
                 let start_idx = self.inner.ops.find_next_index(range.start);
-                let mut first = self.inner.ops[start_idx].clone();
-                if first.0 < range.start {
-                    first.truncate_keeping_right_ctx(range.start - first.0, self.inner.op_ctx);
+                let mut item = self.inner.ops[start_idx].clone(); // pure stack clone.
+
+                // We need to fetch the intersection between range and this ops item. This would be
+                // cleaner with a dedicated intersection method on SplitableSpan / HasRLE.
+
+                // Trim the start.
+                if item.0 < range.start {
+                    item.truncate_keeping_right_ctx(range.start - item.0, self.inner.op_ctx);
                 }
 
-                self.ff_iter = Some((self.inner.ops.0[start_idx+1..].iter(), range.end));
+                // Note: It's a bit gross that this logic is more or less repeated above in the
+                // if let Some(...) block at the top of this function. This would be way cleaner
+                // with generators.
+                let end = item.end();
+                if range.end < end {
+                    // Trim the end of the returned op.
+                    item.truncate_from_ctx(range.end, self.inner.op_ctx);
+                } else if range.end > end {
+                    // We must keep iterating through range on subsequent calls. Save state.
+                    self.ff_iter = Some((self.inner.ops.0[start_idx+1..].iter(), range.end));
+                }
 
-                Some(Apply(first))
+                Some(Apply(item))
             },
             Some(TransformedResultRaw::DeleteAlreadyHappened(range)) => Some(DeleteAlreadyHappened(range)),
         }
