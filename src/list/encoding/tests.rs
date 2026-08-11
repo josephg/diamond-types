@@ -389,27 +389,89 @@ fn compat_simple_doc() {
     }
 }
 
+/// Corrupt an encoded oplog in every way we can cheaply enumerate, and check that load_from
+/// always returns a Result rather than panicking.
 #[test]
 fn corrupted_bytes_return_parse_error_instead_of_panicking() {
-    // load_from is documented to return a Result, but some corrupted inputs used to trip an
-    // internal unwrap() deep in the RLE decoding instead of surfacing a ParseError.
-    let doc = simple_doc();
-    let good_bytes = doc.oplog.encode(&EncodeOptions::full().store_deleted_content(true));
+    // A few different shapes of document, so we exercise more of the decoder than a single
+    // linear single-agent oplog does.
+    let corpus: Vec<(&str, ListOpLog)> = vec![
+        ("simple", simple_doc().oplog),
+        ("concurrent", {
+            // Two agents with concurrent branches, so the encoded file has entries with more
+            // than one parent.
+            let mut oplog = ListOpLog::new();
+            oplog.get_or_create_agent_id("seph");
+            oplog.get_or_create_agent_id("mike");
+            let a = oplog.add_insert_at(0, &[], 0, "aaa");
+            let b = oplog.add_insert_at(1, &[], 0, "bbb");
+            oplog.add_insert_at(0, &[a, b], 1, "ccc");
+            oplog.add_delete_at(1, &[a, b], 2..4);
+            oplog
+        }),
+        ("shared agent", {
+            // Concurrent branches sharing one agent ID.
+            let mut oplog = ListOpLog::new();
+            oplog.get_or_create_agent_id("seph");
+            let a = oplog.add_insert_at(0, &[], 0, "a");
+            oplog.add_insert_at(0, &[], 0, "b");
+            oplog.add_insert_at(0, &[a], 1, "c");
+            oplog
+        }),
+    ];
 
+    // The decoder is noisy on the way to returning an error. Quieten it, or this test buries any
+    // real failure in thousands of lines of panic output.
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+
+    let mut failures = Vec::new();
     let mut found_an_error_case = false;
-    for i in 0..good_bytes.len() {
-        for &b in &[0u8, 2, 0xff] {
-            let mut corrupted = good_bytes.clone();
-            corrupted.splice(i..i, [b]);
 
-            let result = std::panic::catch_unwind(|| ListOpLog::load_from(&corrupted));
-            assert!(result.is_ok(), "load_from panicked on corrupted bytes at position {i} with inserted byte {b}");
+    {
+        let mut check = |bytes: Vec<u8>, desc: String| {
+            match std::panic::catch_unwind(|| ListOpLog::load_from(&bytes)) {
+                Err(_) => failures.push(desc),
+                Ok(Err(_)) => found_an_error_case = true,
+                Ok(Ok(_)) => {}
+            }
+        };
 
-            if let Ok(Err(_)) = result {
-                found_an_error_case = true;
+        for (name, oplog) in &corpus {
+            let good_bytes = oplog.encode(&EncodeOptions::full().store_deleted_content(true));
+
+            for i in 0..good_bytes.len() {
+                // Replace byte i with every other possible value.
+                for b in 0u8..=255 {
+                    if b == good_bytes[i] { continue; }
+                    let mut corrupted = good_bytes.clone();
+                    corrupted[i] = b;
+                    check(corrupted, format!("{name}: replace @{i} with {b}"));
+                }
+
+                // Insert a byte at i.
+                for b in [0u8, 1, 2, 3, 0x7f, 0x80, 0xfe, 0xff] {
+                    let mut corrupted = good_bytes.clone();
+                    corrupted.splice(i..i, [b]);
+                    check(corrupted, format!("{name}: insert {b} @{i}"));
+                }
+
+                // Delete byte i.
+                let mut corrupted = good_bytes.clone();
+                corrupted.remove(i);
+                check(corrupted, format!("{name}: delete @{i}"));
+
+                // Truncate the data at i.
+                check(good_bytes[..i].to_vec(), format!("{name}: truncate @{i}"));
             }
         }
     }
+
+    std::panic::set_hook(hook);
+
+    assert!(failures.is_empty(),
+            "load_from panicked on {} corrupted inputs. First 10: {:?}",
+            failures.len(), &failures[..failures.len().min(10)]);
 
     // Sanity check that this actually exercises some malformed input (rather than every
     // mutation happening to still decode successfully).

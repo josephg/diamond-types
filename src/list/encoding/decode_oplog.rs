@@ -56,9 +56,10 @@ impl<'a> BufReader<'a> {
         let entry = &mut map[inner_agent];
         let agent = entry.0;
 
-        // TODO: Error if this overflows.
-        let start = (entry.1 as isize + jump) as usize;
-        let end = start + len;
+        let start = (entry.1 as isize).checked_add(jump)
+            .filter(|s| *s >= 0)
+            .ok_or(ParseError::InvalidLength)? as usize;
+        let end = start.checked_add(len).ok_or(ParseError::InvalidLength)?;
         entry.1 = end;
 
         Ok(Some(AgentSpan {
@@ -117,7 +118,7 @@ impl<'a> BufReader<'a> {
                     // Parents must be in the past.
                     return Err(ParseError::InvalidLength);
                 }
-                next_time - n
+                next_time.checked_sub(n).ok_or(ParseError::InvalidLength)?
             };
 
             parents.push(parent);
@@ -130,18 +131,28 @@ impl<'a> BufReader<'a> {
         // 1. The file is invalid. All local (non-foreign) changes should be in order).
         // or 2. We have foreign items - and they're not sorted based on the local versions.
         // This is fine and we should just re-sort.
-        sort_frontier(&mut parents);
+        //
+        // sort_frontier() would do this, but it debug_asserts that the versions are unique, and a
+        // corrupted file can name the same parent twice.
+        parents.sort_unstable();
+        if parents.windows(2).any(|w| w[0] == w[1]) {
+            return Err(ParseError::InvalidLength);
+        }
 
         Ok(Frontier(parents))
     }
 
     fn next_history_entry(&mut self, oplog: &ListOpLog, next_time: LV, agent_map: &[(AgentId, usize)]) -> Result<GraphEntrySimple, ParseError> {
         let len = self.next_usize()?;
+        if len == 0 {
+            return Err(ParseError::InvalidLength);
+        }
+        let end = next_time.checked_add(len).ok_or(ParseError::InvalidLength)?;
         let parents = self.read_parents(oplog, next_time, agent_map)?;
 
         // Bleh its gross passing a &[Time] into here when we have a Frontier already.
         Ok(GraphEntrySimple {
-            span: (next_time..next_time + len).into(),
+            span: (next_time..end).into(),
             parents,
         })
     }
@@ -237,8 +248,9 @@ struct FileInfoData<'a> {
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
-fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> (GraphEntrySimple, Option<GraphEntrySimple>) {
-    let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
+fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> Result<(GraphEntrySimple, Option<GraphEntrySimple>), ParseError> {
+    let (map_entry, offset) = version_map.find_with_offset(hist_entry.span.start)
+        .ok_or(ParseError::InvalidLength)?;
 
     let mut map_entry = map_entry.1;
     map_entry.truncate_keeping_right(offset);
@@ -256,7 +268,8 @@ fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map:
     // const UNDERWATER_LAST: usize = ROOT_TIME - 1;
     for p in hist_entry.parents.0.iter_mut() {
         if *p >= UNDERWATER_START {
-            let (span, offset) = version_map.find_packed_with_offset(*p);
+            let (span, offset) = version_map.find_with_offset(*p)
+                .ok_or(ParseError::InvalidLength)?;
             *p = span.1.start + offset;
         }
     }
@@ -264,8 +277,12 @@ fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map:
     // Parents can become unsorted here because they might not map cleanly. Thanks, fuzzer.
     sort_frontier(&mut hist_entry.parents.0);
 
-    (hist_entry, remainder)
+    Ok((hist_entry, remainder))
 }
+
+/// Positions are encoded as signed diffs, and [`RangeRev::truncate_tagged_span`] adds a position
+/// and a length together, so they have to stay inside isize.
+const MAX_POSITION: usize = isize::MAX as usize;
 
 // I could just pass &mut last_cursor_pos to a flat read() function. Eh. Once again, generators
 // would make this way cleaner.
@@ -310,16 +327,23 @@ impl<'a> ReadPatchesIter<'a> {
         };
 
         // dbg!(self.last_cursor_pos, diff);
-        let raw_start = isize::wrapping_add(self.last_cursor_pos as isize, diff) as usize;
+        let raw_start = (self.last_cursor_pos as isize).checked_add(diff)
+            .filter(|p| *p >= 0)
+            .ok_or(ParseError::InvalidLength)? as usize;
 
         let (start, raw_end) = match (tag, fwd) {
-            (Ins, true) => (raw_start, raw_start + len),
+            (Ins, true) => (raw_start, raw_start.checked_add(len).ok_or(ParseError::InvalidLength)?),
             (Ins, false) | (Del, true) => (raw_start, raw_start), // Weird symmetry!
-            (Del, false) => (raw_start - len, raw_start - len),
+            (Del, false) => {
+                let start = raw_start.checked_sub(len).ok_or(ParseError::InvalidLength)?;
+                (start, start)
+            },
         };
         // dbg!((raw_start, tag, fwd, len, start, raw_end));
 
-        let end = start + len;
+        let end = start.checked_add(len)
+            .filter(|end| *end <= MAX_POSITION)
+            .ok_or(ParseError::InvalidLength)?;
 
         // dbg!(pos);
         self.last_cursor_pos = raw_end;
@@ -760,7 +784,11 @@ impl ListOpLog {
                             }
                         } else { None };
 
-                        assert!(max_len > 0);
+                        if max_len == 0 {
+                            // A zero length op or content run would make no progress, and this
+                            // loop would never end.
+                            return Err(ParseError::InvalidLength);
+                        }
                         n -= max_len;
 
                         let remainder = op.trim_ctx(max_len, &dummy_ctx);
@@ -784,6 +812,8 @@ impl ListOpLog {
                 Ok(())
             };
 
+            // First pass: walk the file's agent assignments, claiming a local version for every
+            // operation we don't already have, and reading the patches that go with them.
             while let Some(mut crdt_span) = agent_assignment_chunk.read_next_agent_assignment(&mut agent_map)? {
                 // let mut crdt_span = crdt_span; // TODO: Remove me. Blerp clion.
                 // dbg!(crdt_span);
@@ -847,6 +877,19 @@ impl ListOpLog {
                     // Optimization - don't bother with the filtering code above if loaded changes
                     // follow local changes. Most calls to this function load into an empty
                     // document, and this is the case.
+
+                    // assign_time_to_crdt_span panics if any of this seq range is already assigned
+                    // to the agent, which two overlapping spans in one file will do.
+                    let client = &self.cg.agent_assignment.client_data[crdt_span.agent as usize];
+                    let (existing, _offset) = client.lv_for_seq.find_sparse(crdt_span.seq_range.start);
+                    let overlaps = match existing {
+                        Ok(_) => true,                                  // Starts inside an assigned entry.
+                        Err(gap) => crdt_span.seq_range.end > gap.end,  // Runs past the gap into the next one.
+                    };
+                    if overlaps {
+                        return Err(ParseError::InvalidLength);
+                    }
+
                     self.assign_time_to_crdt_span(next_assignment_time, crdt_span);
                     let len = crdt_span.len();
                     let timespan = (next_assignment_time..next_assignment_time+len).into();
@@ -860,6 +903,8 @@ impl ListOpLog {
                 }
             }
 
+            // Second pass: rewind to the start of the file's operations and walk its history
+            // entries, rebuilding the causal graph over the versions the first pass assigned.
             next_file_time = new_op_start;
             // dbg!(&version_map);
             let mut next_history_time = first_new_time;
@@ -884,11 +929,42 @@ impl ListOpLog {
                 // going to sweat it.
 
                 loop {
+                    // An entry can only be mapped as far as the next discontinuity in
+                    // version_map, so this hands back a remainder to go around again.
                     let (mut mapped, remainder)
-                        = history_entry_map_and_truncate(entry, &version_map);
+                        = history_entry_map_and_truncate(entry, &version_map)?;
                     // dbg!(&mapped);
                     mapped.parents.debug_check_sorted();
-                    assert!(mapped.span.start <= next_history_time);
+                    if mapped.span.start > next_history_time {
+                        return Err(ParseError::InvalidLength);
+                    }
+
+                    // Check the mapped parents before they reach Graph::push, which unwraps the
+                    // lookup of each one and assumes they arrive as a real frontier.
+                    let mapped_parents = mapped.parents.as_ref();
+                    let strictly_ascending = mapped_parents.windows(2).all(|pair| pair[0] < pair[1]);
+                    let all_in_the_past = mapped_parents.last()
+                        .is_none_or(|&newest| newest < mapped.span.start);
+                    if !strictly_ascending || !all_in_the_past {
+                        return Err(ParseError::InvalidLength);
+                    }
+
+                    // Reject two parents from the same graph entry. Everything inside one entry is
+                    // causally ordered, so a real frontier never names two of them, and Graph::push
+                    // would wire the same child index into that entry twice. Looking each parent
+                    // up costs a binary search, and with a single parent there is nothing to
+                    // compare it against.
+                    if mapped_parents.len() >= 2 {
+                        let mut entry_idxs = SmallVec::<usize, 2>::new();
+                        for &parent in mapped_parents {
+                            let idx = self.cg.graph.entries.find_index(parent)
+                                .map_err(|_| ParseError::InvalidLength)?;
+                            if entry_idxs.contains(&idx) {
+                                return Err(ParseError::InvalidLength);
+                            }
+                            entry_idxs.push(idx);
+                        }
+                    }
 
                     // We'll update merge parents even if nothing is merged.
                     // dbg!((&file_frontier, &mapped));
