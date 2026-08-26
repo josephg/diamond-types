@@ -223,6 +223,26 @@ fn error_unrolling() {
 }
 
 #[test]
+fn load_from_never_panics_on_inserted_bytes() {
+    // Corrupting the encoded data by inserting extra bytes (rather than flipping existing
+    // ones) shifts every following field, which used to reach an unchecked lookup while
+    // remapping history entries and panic instead of returning a ParseError.
+    let mut doc = ListCRDT::new();
+    let agent = doc.get_or_create_agent_id("agent 0");
+    doc.insert(agent, 0, "\0");
+    let bytes = doc.oplog.encode(&EncodeOptions::full().store_deleted_content(true));
+
+    for i in 0..=bytes.len() {
+        for b in [0u8, 2, 0xff] {
+            let mut corrupted = bytes.clone();
+            corrupted.splice(i..i, [b]);
+            // Must return a Result either way, never panic.
+            let _ = ListOpLog::load_from(&corrupted);
+        }
+    }
+}
+
+#[test]
 fn save_load_save_load() {
     let oplog1 = simple_doc().oplog;
     let bytes = oplog1.encode(&EncodeOptions::full().store_inserted_content(false));
