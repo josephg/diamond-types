@@ -237,8 +237,9 @@ struct FileInfoData<'a> {
 
 /// Returns (mapped span, remainder).
 /// The returned remainder is *NOT MAPPED*. This allows this method to be called in a loop.
-fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> (GraphEntrySimple, Option<GraphEntrySimple>) {
-    let (map_entry, offset) = version_map.find_packed_with_offset(hist_entry.span.start);
+fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map: &RleVec<KVPair<DTRange>>) -> Result<(GraphEntrySimple, Option<GraphEntrySimple>), ParseError> {
+    let (map_entry, offset) = version_map.find_with_offset(hist_entry.span.start)
+        .ok_or(ParseError::GenericInvalidData)?;
 
     let mut map_entry = map_entry.1;
     map_entry.truncate_keeping_right(offset);
@@ -256,7 +257,8 @@ fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map:
     // const UNDERWATER_LAST: usize = ROOT_TIME - 1;
     for p in hist_entry.parents.0.iter_mut() {
         if *p >= UNDERWATER_START {
-            let (span, offset) = version_map.find_packed_with_offset(*p);
+            let (span, offset) = version_map.find_with_offset(*p)
+                .ok_or(ParseError::GenericInvalidData)?;
             *p = span.1.start + offset;
         }
     }
@@ -264,7 +266,7 @@ fn history_entry_map_and_truncate(mut hist_entry: GraphEntrySimple, version_map:
     // Parents can become unsorted here because they might not map cleanly. Thanks, fuzzer.
     sort_frontier(&mut hist_entry.parents.0);
 
-    (hist_entry, remainder)
+    Ok((hist_entry, remainder))
 }
 
 // I could just pass &mut last_cursor_pos to a flat read() function. Eh. Once again, generators
@@ -885,7 +887,7 @@ impl ListOpLog {
 
                 loop {
                     let (mut mapped, remainder)
-                        = history_entry_map_and_truncate(entry, &version_map);
+                        = history_entry_map_and_truncate(entry, &version_map)?;
                     // dbg!(&mapped);
                     mapped.parents.debug_check_sorted();
                     assert!(mapped.span.start <= next_history_time);
