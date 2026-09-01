@@ -813,6 +813,29 @@ mod test {
     use crate::{DTRange, Frontier};
     use crate::dtrange::RangeHelpers;
 
+    /// The walker's visited debug_assert fires on this shape: node 6 is a
+    /// merge child of three concurrent roots (0, 4, 5), so it appears in the
+    /// child list of each. Only the parent it is first descended from
+    /// consumes its slot; when another of its parents is later re-scanned
+    /// off the stack, 6 shows up already-visited in an unconsumed slot.
+    /// Minimized mechanically from a randomized-simulation failure.
+    #[test]
+    fn merge_child_seen_again_via_other_parent() {
+        let graph = Graph::from_simple_items(&[
+            GraphEntrySimple { span: DTRange::from_1(0), parents: Frontier::root() },
+            GraphEntrySimple { span: DTRange::from_1(1), parents: Frontier::root() },
+            GraphEntrySimple { span: DTRange::from_1(2), parents: Frontier::from_sorted(&[0, 1]) },
+            GraphEntrySimple { span: DTRange::from_1(3), parents: Frontier::new_1(1) },
+            GraphEntrySimple { span: DTRange::from_1(4), parents: Frontier::root() },
+            GraphEntrySimple { span: DTRange::from_1(5), parents: Frontier::root() },
+            GraphEntrySimple { span: DTRange::from_1(6), parents: Frontier::from_sorted(&[0, 4, 5]) },
+        ]);
+
+        // Merge from a branch at [2] up to [2, 3, 6]. Panics at the
+        // debug_assert_eq!(e2.state.visited, false) in the child scan.
+        let (_plan, _base) = graph.make_m1_plan(None, &[2], &[2, 3, 6], true);
+    }
+
     #[test]
     fn test_merge1_simple_graph() {
         let graph = Graph::from_simple_items(&[
