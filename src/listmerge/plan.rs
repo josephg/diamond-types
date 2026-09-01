@@ -585,17 +585,38 @@ impl ConflictSubgraph<M1EntryState> {
             let e = &self.entries[current_idx];
             if e.state.next < c.len() {
                 // Look for a child we can visit.
-                for i in e.state.next..c.len() {
+                let mut i = e.state.next;
+                while i < c.len() {
                     let next_idx = c[i];
                     let e2 = &self.entries[next_idx];
-                    debug_assert_eq!(e2.state.visited, false);
+
+                    // A merge child appears in the child list of each of its
+                    // parents, but only the parent we descend from consumes
+                    // its slot. If the child was since visited by descending
+                    // from a different parent (or via the deferred b_children
+                    // path), this parent still lists it here. Retire the slot
+                    // (visited never reverts) so rescans of this node don't
+                    // re-walk it and the node isn't re-pushed onto the stack
+                    // on its account. The visited flag guarantees each node
+                    // is still processed exactly once.
+                    if e2.state.visited {
+                        let e = &mut self.entries[current_idx];
+                        c.swap(e.state.next, i);
+                        e.state.next += 1;
+                        i += 1;
+                        continue;
+                    }
 
                     // This is a merge, but we haven't covered all the merge's parents.
-                    if e2.state.parents_satisfied != e2.parents.len() { continue; }
+                    if e2.state.parents_satisfied != e2.parents.len() {
+                        i += 1;
+                        continue;
+                    }
 
                     if a_spans_remaining > 0 && e2.flag == DiffFlag::OnlyB {
                         // We'll come back to this node later. More A stuff first!
                         b_children.push(next_idx);
+                        i += 1;
                         continue;
                     }
 
