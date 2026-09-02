@@ -414,7 +414,15 @@ impl HasLength for LegacyRange<u32> {
     #[inline]
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
+impl HasLength for LegacyRange<i32> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
 impl HasLength for LegacyRange<u64> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
+impl HasLength for LegacyRange<i64> {
     #[inline]
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
@@ -430,7 +438,15 @@ impl HasLength for Range<u32> {
     #[inline]
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
+impl HasLength for Range<i32> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
 impl HasLength for Range<u64> {
+    #[inline]
+    fn len(&self) -> usize { (self.end - self.start) as _ }
+}
+impl HasLength for Range<i64> {
     #[inline]
     fn len(&self) -> usize { (self.end - self.start) as _ }
 }
@@ -456,6 +472,23 @@ impl SplitableSpanHelpers for LegacyRange<u32> {
     }
 }
 impl MergableSpan for LegacyRange<u32> {
+    fn can_append(&self, other: &Self) -> bool {
+        self.end == other.start
+    }
+
+    fn append(&mut self, other: Self) {
+        self.end = other.end;
+    }
+}
+
+impl SplitableSpanHelpers for LegacyRange<i32> {
+    fn truncate_h(&mut self, at: usize) -> Self {
+        let old_end = self.end;
+        self.end = self.start + at as i32;
+        Self { start: self.end, end: old_end }
+    }
+}
+impl MergableSpan for LegacyRange<i32> {
     fn can_append(&self, other: &Self) -> bool {
         self.end == other.start
     }
