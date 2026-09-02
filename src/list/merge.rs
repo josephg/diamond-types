@@ -30,7 +30,7 @@ impl ListOpLog {
     /// changes that could be applied linearly to a document to bring it up to date.
     pub fn iter_xf_operations_from(&self, from: FrontierRef, merging: FrontierRef) -> impl Iterator<Item=(DTRange, Option<TextOperation>)> + '_ {
         let iter: TransformedSimpleOpsIter = self.get_xf_operations_full(from, merging).into();
-        
+
         iter.map(|result| {
             match result {
                 TransformedSimpleOp::Apply(KVPair(start, op)) => {

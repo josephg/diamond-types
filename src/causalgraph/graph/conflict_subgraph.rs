@@ -25,12 +25,23 @@ use crate::causalgraph::graph::tools::DiffFlag;
 #[derive(Debug, Clone)]
 pub(crate) struct ConflictGraphEntry<S: Default = ()> {
     pub parents: SmallVec<usize, 2>, // 2+ items. These are indexes to sibling items, not LVs.
-    pub span: DTRange,
+    pub span: DTRange, // LV. May be empty (0..0).
     // pub num_children: usize,
     pub state: S,
     pub flag: DiffFlag,
 }
 
+/// This is an intermediate, special "conflict graph" between two versions that we're merging
+/// together. The conflict graph contains mostly the same data as the causal graph, but:
+///
+/// - Items are not split by parents. Each item only has children after the last element in the
+///   span.
+/// - It has ancillary data associated with each item.
+/// - We track the number of children each item contains
+/// - If the same items are independently merged multiple times in the graph, we only merge
+///   them once here and the merged result is shared.
+///
+/// Generate with [Graph::make_conflict_graph_between]
 #[derive(Debug, Clone)]
 pub(crate) struct ConflictSubgraph<S: Default = ()> {
     pub entries: Vec<ConflictGraphEntry<S>>,
