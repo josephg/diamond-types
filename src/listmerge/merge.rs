@@ -592,7 +592,7 @@ pub(crate) struct TransformedOpsIterRaw<'a> {
     // subgraph: &'a Graph,
     aa: &'a AgentAssignment,
     op_ctx: &'a ListOperationCtx,
-    ops: &'a RleVec<KVPair<ListOpMetrics>>,
+    pub ops: &'a RleVec<KVPair<ListOpMetrics>>,
     op_iter: Option<BufferedIter<OpMetricsIter<'a>>>,
 
     tracker: M2Tracker,
