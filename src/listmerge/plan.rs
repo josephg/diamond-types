@@ -378,7 +378,7 @@ impl ConflictSubgraph<M1EntryState> {
             .filter(|e| !e.span.is_empty())
             .count();
 
-        println!("Nonempty spans: {nonempty_spans_remaining}");
+        // println!("Nonempty spans: {nonempty_spans_remaining}");
 
         let mut a_spans_remaining = self.entries.iter()
             .filter(|e| !e.span.is_empty() && e.flag != DiffFlag::OnlyB)
@@ -456,7 +456,7 @@ impl ConflictSubgraph<M1EntryState> {
 
         fn teleport(queue: &mut DiffTraceHeap, g: &ConflictSubgraph<M1EntryState>, actions: &mut Vec<M1PlanAction>, to_idx: usize, from_idx: usize) {
             // Fast case.
-            println!("Teleport from {from_idx} to {to_idx}");
+            // println!("Teleport from {from_idx} to {to_idx}");
             let to_entry_parents = &g.entries[to_idx].parents;
             if to_entry_parents.as_ref() == &[from_idx] { return; }
 
@@ -471,7 +471,7 @@ impl ConflictSubgraph<M1EntryState> {
                             // There's so much reversing happening here. We'll visit spans in
                             // reverse order, but ::Retreat's MergeSpan also understands that they
                             // are reversed. It all cancels out and works out ok.
-                            println!("EMIT RETREAT {:?} (tele)", span);
+                            // println!("EMIT RETREAT {:?} (tele)", span);
                             actions.push_rle(M1PlanAction::Retreat(span));
                         },
                         DiffFlag::OnlyB => { advances.push_reversed_rle(span); },
@@ -482,13 +482,13 @@ impl ConflictSubgraph<M1EntryState> {
 
             if !advances.is_empty() {
                 // .rev() here because diff visits everything in reverse order.
-                println!("EMIT ADVANCE(s) {:?} (tele)", advances);
+                // println!("EMIT ADVANCE(s) {:?} (tele)", advances);
                 actions.extend(advances.into_iter().rev().map(M1PlanAction::Advance));
             }
         }
 
-        self.dbg_print();
-        dbg!(&children);
+        // self.dbg_print();
+        // dbg!(&children);
 
         let mut activated = false;
         let mut dirty = false;
@@ -506,7 +506,7 @@ impl ConflictSubgraph<M1EntryState> {
         let e = &mut self.entries[current_idx];
         debug_assert!(e.span.is_empty());
         debug_assert_eq!(e.state.visited, false);
-        println!("Root visit {current_idx}");
+        // println!("Root visit {current_idx}");
         e.state.visited = true;
         // let e = &self.entries[current_idx];
         for &c in Self::get_children(&children, &self.entries[current_idx]) {
@@ -520,11 +520,11 @@ impl ConflictSubgraph<M1EntryState> {
 
         'outer: loop {
             let e = &mut self.entries[current_idx];
-            println!("Looping on {current_idx} / stack: {:?}", &stack);
-            println!("e children {:?}, next {}", Self::get_children(&children, e), e.state.next);
+            // println!("Looping on {current_idx} / stack: {:?}", &stack);
+            // println!("e children {:?}, next {}", Self::get_children(&children, e), e.state.next);
 
             if !e.state.visited {
-                println!("Visit {current_idx}");
+                // println!("Visit {current_idx}");
                 e.state.visited = true;
 
                 // And drop &mut. I wish I could just say let e = &*e, but the borrowck doesn't
@@ -535,7 +535,7 @@ impl ConflictSubgraph<M1EntryState> {
                 if !e.span.is_empty() {
                     if !activated && e.flag == DiffFlag::OnlyB {
                         activated = true;
-                        println!("EMIT BEGIN OUTPUT");
+                        // println!("EMIT BEGIN OUTPUT");
                         actions.push(M1PlanAction::BeginOutput);
                     }
 
@@ -544,29 +544,29 @@ impl ConflictSubgraph<M1EntryState> {
                         debug_assert_eq!(e.flag, DiffFlag::OnlyB);
 
                         if dirty {
-                            println!("EMIT CLEAR");
+                            // println!("EMIT CLEAR");
                             actions.push(M1PlanAction::Clear);
                             dirty = false;
                             // TODO: Consider also clearing the stack here. We won't be back.
                         }
                         // push_rle is just as correct here, but the rle merging case seems to never
                         // happen.
-                        println!("EMIT FF {:?}", e.span);
+                        // println!("EMIT FF {:?}", e.span);
                         actions.push(M1PlanAction::FF(e.span));
                     } else {
                         // Note we only advance & retreat if the item is not on the critical path.
                         // If we're on the critical path, the clear operation will flush everything
                         // anyway.
-                        println!("TELE {last_processed_idx} -> {current_idx}");
+                        // println!("TELE {last_processed_idx} -> {current_idx}");
                         teleport(&mut queue, &self, &mut actions, current_idx, last_processed_idx);
-                        println!("EMIT APPLY {:?}", e.span);
+                        // println!("EMIT APPLY {:?}", e.span);
                         actions.push_rle(M1PlanAction::Apply(e.span));
                         dirty = true;
                     }
 
                     // We can stop as soon as we've processed all the spans.
                     nonempty_spans_remaining -= 1;
-                    println!("visited span at {current_idx}. nesr-- - nesr = {nonempty_spans_remaining} span: {:?}", e.span);
+                    // println!("visited span at {current_idx}. nesr-- - nesr = {nonempty_spans_remaining} span: {:?}", e.span);
                     if nonempty_spans_remaining == 0 { break 'outer; } // break;
 
                     if e.flag != DiffFlag::OnlyB {
@@ -588,7 +588,7 @@ impl ConflictSubgraph<M1EntryState> {
 
             // let c = &mut children[current_idx];
             let c = Self::get_children_mut(&mut children, e);
-            println!("Children: {:?}", c);
+            // println!("Children: {:?}", c);
 
             let e = &self.entries[current_idx];
             if e.state.next < c.len() {
@@ -596,10 +596,10 @@ impl ConflictSubgraph<M1EntryState> {
                 for i in e.state.next..c.len() {
                     let next_idx = c[i];
                     let e2 = &self.entries[next_idx];
-                    if e2.state.visited {
-                        eprintln!("Cannot re-visit {next_idx} from {current_idx}");
-                        self.dbg_print();
-                    }
+                    // if e2.state.visited {
+                    //     eprintln!("Cannot re-visit {next_idx} from {current_idx}");
+                    //     self.dbg_print();
+                    // }
                     debug_assert_eq!(e2.state.visited, false);
 
                     // This is a merge, but we haven't covered all the merge's parents.
@@ -608,11 +608,11 @@ impl ConflictSubgraph<M1EntryState> {
                     if a_spans_remaining > 0 && e2.flag == DiffFlag::OnlyB {
                         // We'll come back to this node later. More A stuff first!
                         b_children.push(next_idx);
-                        println!("Saving B child for later: {next_idx} -> {b_children:?}");
+                        // println!("Saving B child for later: {next_idx} -> {b_children:?}");
                         continue;
                     }
 
-                    println!("Going down to visit {next_idx}");
+                    // println!("Going down to visit {next_idx}");
                     // We went down. Visit this child.
                     let e = &mut self.entries[current_idx];
                     c.swap(e.state.next, i);
@@ -627,7 +627,7 @@ impl ConflictSubgraph<M1EntryState> {
                 }
             }
 
-            println!("No children viable. Going up.");
+            // println!("No children viable. Going up.");
             // } else if let Some(idx) = b_children.pop() {
             //     debug_assert_eq!(a_spans_remaining, 0);
             //     current_idx = idx;
@@ -679,7 +679,7 @@ impl Graph {
         }
 
         let sg = self.make_conflict_graph_between(a, b);
-        sg.dbg_print();
+        // sg.dbg_print();
         sg.make_m1_plan(metrics, allow_ff)
     }
 }
@@ -834,6 +834,7 @@ mod test {
     use crate::causalgraph::graph::tools::DiffFlag;
     use crate::{DTRange, Frontier};
     use crate::dtrange::RangeHelpers;
+    use crate::list_fuzzer_tools::fuzz_multithreaded;
 
     #[test]
     fn test_merge1_simple_graph() {
@@ -895,10 +896,9 @@ mod test {
         let (_plan, _base) = graph.make_m1_plan(None, &[2], &[2, 3, 6], true);
     }
 
-    #[test]
-    fn fuzz_m1_plans() {
-        with_random_cgs(3232, (1000, 100), |(_i, _k), cg, frontiers| {
-        // with_random_cgs(2231, (100, 3), |(_i, _k), cg, frontiers| {
+    fn fuzz_plan(seed: u64, iterations: (usize, usize)) {
+        with_random_cgs(seed, iterations, |(_i, _k), cg, frontiers| {
+            // with_random_cgs(2231, (100, 3), |(_i, _k), cg, frontiers| {
             // Iterate through the frontiers, and [root -> cg.version].
             for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
                 .chain(frontiers.windows(2))
@@ -937,6 +937,24 @@ mod test {
                 plan2.dbg_check(base_version.as_ref(), a, b, &cg.graph);
             }
         });
+    }
+
+    #[test]
+    fn fuzz_m1_plans() {
+        fuzz_plan(3232, (100, 10));
+    }
+
+
+    #[test]
+    #[ignore]
+    fn fuzz_plan_forever() {
+        fuzz_multithreaded(u64::MAX, |seed| {
+            if seed % 1000 == 0 {
+                println!("Iteration {}", seed);
+            }
+
+            fuzz_plan(seed, (1, 20));
+        })
     }
 
 }
