@@ -642,28 +642,14 @@ impl ConflictSubgraph<M1EntryState> {
                 debug_assert_eq!(a_spans_remaining, 0);
                 while let Some(idx) = b_children.pop() {
                     // Skip anything we've already visited on the way down.
-
-
                     if !self.entries[idx].state.visited {
-                        println!("Popped b child {idx} / {:?}", b_children);
+                        // println!("Popped b child {idx} / {:?}", b_children);
                         current_idx = idx;
                         continue 'outer;
-                    } else {
-                        println!("Skipping b child {idx}");
                     }
                 }
 
                 panic!("Should have stopped");
-            // } else if let Some(idx) = b_children.pop() {
-            //     debug_assert_eq!(a_spans_remaining, 0);
-            //     current_idx = idx;
-            //     println!("Popping b child {current_idx} / {:?}", b_children);
-            //     println!("{:?}", self.entries[current_idx]);
-            // } else {
-            //     // println!("spans remaining {}", nonempty_spans_remaining);
-            //     // self.dbg_print();
-            //     panic!("Should have stopped");
-            //     // break;
             }
         }
 
@@ -830,9 +816,10 @@ impl M1Plan {
 mod test {
     use smallvec::smallvec;
     use crate::causalgraph::graph::{Graph, GraphEntrySimple};
-    use crate::causalgraph::graph::random_graphs::with_random_cgs;
+    use crate::LV;
     use crate::causalgraph::graph::tools::DiffFlag;
     use crate::{DTRange, Frontier};
+    use crate::causalgraph::graph::random_graphs::with_random_cgs;
     use crate::dtrange::RangeHelpers;
     use crate::list_fuzzer_tools::fuzz_multithreaded;
 
@@ -896,55 +883,59 @@ mod test {
         let (_plan, _base) = graph.make_m1_plan(None, &[2], &[2, 3, 6], true);
     }
 
+    // Checks the merge plan for a single (a, b) pair.
+    fn check_plan(cg: &crate::CausalGraph, a: &[LV], b: &[LV]) {
+        // Alternatively:
+        // let plan = cg.graph.make_m1_plan(a, b);
+        let subgraph = cg.graph.make_conflict_graph_between(a, b);
+        subgraph.dbg_check();
+        subgraph.dbg_check_conflicting(&cg.graph, a, b);
+
+        // subgraph.dbg_print();
+        let (plan, base_version) = subgraph.make_m1_plan(None, true);
+        // plan.dbg_print();
+        plan.dbg_check(base_version.as_ref(), a, b, &cg.graph);
+
+        // And check that if we don't allow fast-forwarding the plan still works.
+        let subgraph = cg.graph.make_conflict_graph_between(a, b);
+        let (plan2, base_version) = subgraph.make_m1_plan(None, false);
+        plan2.dbg_check(base_version.as_ref(), a, b, &cg.graph);
+    }
+
     fn fuzz_plan(seed: u64, iterations: (usize, usize)) {
-        with_random_cgs(seed, iterations, |(_i, _k), cg, frontiers| {
-            // with_random_cgs(2231, (100, 3), |(_i, _k), cg, frontiers| {
-            // Iterate through the frontiers, and [root -> cg.version].
-            for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
+        with_random_cgs(seed, iterations, 5, |(_i, _k), cg, frontiers| {
+            // We'll check the plan going to / from some arbitrary frontiers in the graph.
+            // Note that a plan from a -> b != a plan from b -> a. So we do both.
+
+            // Check [root -> cg.version] ...
+            check_plan(cg, &[], cg.version.as_ref());
+
+            // We'll also check every ordered pair of frontiers
+            for a in frontiers.iter() {
+                for b in frontiers.iter() {
+                    check_plan(cg, a.as_ref(), b.as_ref());
+                }
+            }
+
+            // And pairs.
+            for fs in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
                 .chain(frontiers.windows(2))
-                .enumerate()
             {
-                // println!("{_i}, {_k}, {_j}");
-                // if _j != 0 { continue; }
-
-                let (a, b) = (fs[0].as_ref(), fs[1].as_ref());
-
-                // println!("\n\n");
-                // if (_i, _k, _j) == (1, 2, 1) {
-                //     println!("\n\n\nOOO");
-                //
-                //     #[cfg(feature = "dot_export")]
-                //     cg.generate_dot_svg("dot.svg");
-                // }
-                // dbg!(&cg.graph);
-                // println!("f: {:?} + {:?}", a, b);
-
-                // Alternatively:
-                // let plan = cg.graph.make_m1_plan(a, b);
-                let subgraph = cg.graph.make_conflict_graph_between(a, b);
-                subgraph.dbg_check();
-                subgraph.dbg_check_conflicting(&cg.graph, a, b);
-
-                // subgraph.dbg_print();
-                let (plan, base_version) = subgraph.make_m1_plan(None, true);
-                // plan.dbg_print();
-                // dbg!(&plan);
-                plan.dbg_check(base_version.as_ref(), a, b, &cg.graph);
-
-                // And check that if we don't allow fast-forwarding the plan still works.
-                let subgraph = cg.graph.make_conflict_graph_between(a, b);
-                let (plan2, base_version) = subgraph.make_m1_plan(None, false);
-                plan2.dbg_check(base_version.as_ref(), a, b, &cg.graph);
+                check_plan(cg, fs[0].as_ref(), fs[1].as_ref());
+                check_plan(cg, fs[1].as_ref(), fs[0].as_ref());
             }
         });
     }
 
     #[test]
     fn fuzz_m1_plans() {
-        fuzz_plan(3232, (100, 10));
+        // This is quite slow, so I'll just do a few hundred milliseconds worth of scans.
+        // Run the big test below for better checks.
+        fuzz_plan(3232, (30, 10));
     }
 
-
+    // Run with:
+    // RUSTFLAGS="-C debug-assertions" cargo test --release -- --ignored --no-capture fuzz_plan_forever
     #[test]
     #[ignore]
     fn fuzz_plan_forever() {
@@ -953,10 +944,9 @@ mod test {
                 println!("Iteration {}", seed);
             }
 
-            fuzz_plan(seed, (1, 20));
+            fuzz_plan(seed, (1, 15));
         })
     }
-
 }
 
 #[ignore]

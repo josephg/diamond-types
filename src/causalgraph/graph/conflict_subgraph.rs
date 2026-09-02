@@ -597,7 +597,7 @@ mod test {
 
     #[test]
     fn fuzz_conflict_subgraph() {
-        with_random_cgs(12, (100, 10), |(_i, _k), cg, frontiers| {
+        with_random_cgs(12, (100, 10), 3, |(_i, _k), cg, frontiers| {
             // Iterate through the frontiers, and [root -> cg.version].
             for (_j, fs) in std::iter::once([Frontier::root(), cg.version.clone()].as_slice())
                 .chain(frontiers.windows(2))

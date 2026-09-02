@@ -9,19 +9,19 @@ use crate::{AgentId, CausalGraph, DTRange, Frontier};
 use crate::list_fuzzer_tools::choose_2;
 use crate::dtrange::RangeHelpers;
 
-pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier])>(seed: u64, iterations: (usize, usize), mut f: F) {
+pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier])>(seed: u64, iterations: (usize, usize), num_agents: usize, mut f: F) {
     for outer in 0..iterations.0 {
         let seed_here = seed + outer as u64;
         let mut rng = SmallRng::seed_from_u64(seed_here);
         // println!("seed {seed_here}");
-        let mut frontiers = [Frontier::root(), Frontier::root(), Frontier::root()];
+        let mut frontiers = vec![Frontier::root(); num_agents];
         let mut cg = CausalGraph::new();
 
-        let agents = ["a", "b", "c"];
-        // Agent IDs 0, 1 and 2.
-        for a in agents { cg.get_or_create_agent_id(a); }
+        // Agent IDs 0, 1, 2, ...
+        for i in 0..num_agents {
+            cg.get_or_create_agent_id(&format!("agent{i}"));
+        }
 
-        // for _i in 0..300 {
         for i in 0..iterations.1 {
             // Generate some "operations" from the peers.
             for _j in 0..2 {
@@ -29,8 +29,7 @@ pub(crate) fn with_random_cgs<F: FnMut((usize, usize), &CausalGraph, &[Frontier]
                 let frontier = &mut frontiers[idx];
 
                 let first_change = cg.len();
-                // let span: DTRange = (first_change..first_change + rng.gen_range(1..5)).into();
-                let span: DTRange = (first_change..first_change + 1).into();
+                let span: DTRange = (first_change..first_change + rng.gen_range(1..4)).into();
                 cg.assign_span(idx as AgentId, frontier.as_ref(), span);
 
                 frontier.replace_with_1(span.last());
