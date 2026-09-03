@@ -292,15 +292,19 @@ impl OpLog {
 
     // This method adds 17kb to the wasm bundle, or 5kb after brotli.
     #[wasm_bindgen(js_name = fromBytes)]
-    pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> Self {
+    pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> WasmResult<OpLog> {
         utils::set_panic_hook();
 
-        let mut inner = DTOpLog::load_from(bytes).unwrap();
+        let mut inner = DTOpLog::load_from(bytes).map_err(|e| {
+            let js: JsValue = format!("Error loading document: {:?}", e).into();
+            serde_wasm_bindgen::Error::from(js)
+        })?;
+
         let agent_id = agent_name.map(|name| {
             inner.get_or_create_agent_id(name.as_str())
         });
 
-        Self { inner, agent_id }
+        Ok(Self { inner, agent_id })
     }
 
     /// Decode bytes, and add (merge in) any missing operations.
@@ -398,22 +402,23 @@ impl Doc {
         get_patch_since(&self.inner.oplog, from_version)
     }
 
-    // TODO: Do better error handling here.
-    // pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> WasmResult<Doc> {
     #[wasm_bindgen(js_name = fromBytes)]
-    pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> Self {
+    pub fn from_bytes(bytes: &[u8], agent_name: Option<String>) -> WasmResult<Doc> {
         utils::set_panic_hook();
 
-        // let mut inner = ListCRDT::load_from(bytes).map_err(|e| e.into())?;
-        let mut inner = ListCRDT::load_from(bytes).unwrap();
+        let mut inner = ListCRDT::load_from(bytes).map_err(|e| {
+            let js: JsValue = format!("Error loading document: {:?}", e).into();
+            serde_wasm_bindgen::Error::from(js)
+        })?;
+
         let agent_id = agent_name.map(|name| {
             inner.get_or_create_agent_id(name.as_str())
         });
 
-        Self {
+        Ok(Self {
             inner,
             agent_id
-        }
+        })
     }
 
     #[wasm_bindgen(js_name = mergeBytes)]
